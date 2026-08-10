@@ -50,10 +50,9 @@ fn invalid_options_fail_before_any_download() {
     for (arguments, expected) in [
         (vec!["--speed", "3"], "speed must be between 0.5 and 2.0"),
         (
-            vec!["--chunk-chars", "0"],
-            "chunk size must be greater than zero",
+            vec!["--chunk-phonemes", "0"],
+            "phoneme limit must be greater than zero",
         ),
-        (vec!["--threads", "0"], "threads must be greater than zero"),
         (vec!["--voice", "ef_dora"], "unknown English voice"),
         (
             vec!["--pronunciation", "Cormer"],

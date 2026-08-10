@@ -5,9 +5,8 @@
 
 use anyhow::{Result, bail};
 
-// Voice files have 510 frames indexed by the unpadded phoneme count, so 509
-// is the highest usable count.
-pub const MAX_PHONEMES: usize = 509;
+// MLX voice packs have 510 frames indexed by phoneme count minus one.
+pub const MAX_PHONEMES: usize = 510;
 
 const VOCAB: &[(char, i64)] = &[
     (';', 1),
@@ -133,6 +132,29 @@ const VOCAB: &[(char, i64)] = &[
 /// Returns an error for empty, unsupported, or oversized input.
 pub fn token_ids(phonemes: &str) -> Result<Vec<i64>> {
     let mut ids = vec![0];
+    let phonemes = normalized_phonemes(phonemes)?;
+
+    for phone in phonemes.chars() {
+        let id = VOCAB
+            .iter()
+            .find(|(candidate, _)| *candidate == phone)
+            .map(|(_, id)| *id)
+            .expect("normalized phonemes are in the vocabulary");
+        ids.push(id);
+    }
+
+    let count = ids.len() - 1;
+    if count > MAX_PHONEMES {
+        bail!(
+            "phoneme sequence has {count} tokens; maximum is {MAX_PHONEMES}; reduce --chunk-phonemes"
+        );
+    }
+    ids.push(0);
+    Ok(ids)
+}
+
+pub(crate) fn normalized_phonemes(phonemes: &str) -> Result<String> {
+    let mut normalized = String::with_capacity(phonemes.len());
     let mut unsupported = Vec::new();
 
     for raw in phonemes.chars() {
@@ -142,8 +164,8 @@ pub fn token_ids(phonemes: &str) -> Result<Vec<i64>> {
             '`' | '´' => 'ˈ',
             other => other,
         };
-        if let Some((_, id)) = VOCAB.iter().find(|(candidate, _)| *candidate == phone) {
-            ids.push(*id);
+        if VOCAB.iter().any(|(candidate, _)| *candidate == phone) {
+            normalized.push(phone);
         } else if !unsupported.contains(&phone) {
             unsupported.push(phone);
         }
@@ -153,17 +175,10 @@ pub fn token_ids(phonemes: &str) -> Result<Vec<i64>> {
         let characters = unsupported.iter().collect::<String>();
         bail!("unsupported phoneme characters '{characters}'; use --pronunciation WORD=IPA");
     }
-    let count = ids.len() - 1;
-    if count == 0 {
+    if normalized.is_empty() {
         bail!("phonemizer returned no speech sounds");
     }
-    if count > MAX_PHONEMES {
-        bail!(
-            "phoneme sequence has {count} tokens; maximum is {MAX_PHONEMES}; reduce --chunk-chars"
-        );
-    }
-    ids.push(0);
-    Ok(ids)
+    Ok(normalized)
 }
 
 pub fn supports(phonemes: &str) -> bool {
@@ -182,7 +197,7 @@ pub fn supports(phonemes: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::token_ids;
+    use super::{normalized_phonemes, token_ids};
 
     #[test]
     fn pads_and_normalizes_phonemes() {
@@ -192,11 +207,11 @@ mod tests {
 
     #[test]
     fn keeps_the_style_index_within_a_510_frame_voice() {
-        assert!(token_ids(&"a".repeat(509)).is_ok());
+        assert!(token_ids(&"a".repeat(510)).is_ok());
 
-        let error = token_ids(&"a".repeat(510)).expect_err("style frame 510 must be rejected");
+        let error = token_ids(&"a".repeat(511)).expect_err("style frame 511 must be rejected");
 
-        assert!(error.to_string().contains("maximum is 509"));
+        assert!(error.to_string().contains("maximum is 510"));
     }
 
     #[test]
@@ -207,6 +222,14 @@ mod tests {
             error
                 .to_string()
                 .contains("unsupported phoneme characters '🙂'")
+        );
+    }
+
+    #[test]
+    fn normalizes_aliases_before_worker_synthesis() {
+        assert_eq!(
+            normalized_phonemes("hɝ`e\u{200d}").expect("phonemes"),
+            "hɚˈe"
         );
     }
 }

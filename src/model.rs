@@ -12,14 +12,15 @@ use tempfile::NamedTempFile;
 
 use crate::voice::Voice;
 
-pub const MODEL_REVISION: &str = "1939ad2a8e416c0acfeecc08a694d14ef25f2231";
-pub const MODEL_BUNDLE_NAME: &str = "Kokoro-82M-v1.0-ONNX-1939ad2a-q8f16";
-pub const MODEL_SHA256: &str = "04c658aec1b6008857c2ad10f8c589d4180d0ec427e7e6118ceb487e215c3cd0";
-const MODEL_FILE: &str = "model_q8f16.onnx";
-const REPOSITORY: &str = "onnx-community/Kokoro-82M-v1.0-ONNX";
+pub const MODEL_REVISION: &str = "a71e4d38b236d968966a2002c4c895dbd12b1c3c";
+pub const MODEL_BUNDLE_NAME: &str = "Kokoro-82M-bf16-a71e4d38";
+pub const MODEL_SHA256: &str = "4e9ecdf03b8b6cf906070390237feda473dc13327cb8d56a43deaa374c02acd8";
+const MODEL_FILE: &str = "kokoro-v1_0.safetensors";
+const REPOSITORY: &str = "mlx-community/Kokoro-82M-bf16";
 
 #[derive(Debug, Clone)]
 pub struct ModelAssets {
+    pub root: PathBuf,
     pub model: PathBuf,
     pub voice: PathBuf,
 }
@@ -32,8 +33,11 @@ impl ModelAssets {
     /// Returns an error that lists every missing file.
     pub fn from_dir(root: &Path, voice: Voice) -> Result<Self> {
         let assets = Self {
+            root: root.to_path_buf(),
             model: root.join(MODEL_FILE),
-            voice: root.join("voices").join(format!("{}.bin", voice.name())),
+            voice: root
+                .join("voices")
+                .join(format!("{}.safetensors", voice.name())),
         };
         let missing = [&assets.model, &assets.voice]
             .into_iter()
@@ -91,7 +95,7 @@ pub fn ensure_model(cache_dir: &Path, voice: Voice) -> Result<ModelAssets> {
     ensure_asset(&model, &model_url(), MODEL_SHA256, "Kokoro model")?;
     let voice_path = model_dir
         .join("voices")
-        .join(format!("{}.bin", voice.name()));
+        .join(format!("{}.safetensors", voice.name()));
     ensure_asset(
         &voice_path,
         &voice_url(voice),
@@ -105,12 +109,12 @@ pub fn ensure_model(cache_dir: &Path, voice: Voice) -> Result<ModelAssets> {
 }
 
 fn model_url() -> String {
-    format!("https://huggingface.co/{REPOSITORY}/resolve/{MODEL_REVISION}/onnx/{MODEL_FILE}")
+    format!("https://huggingface.co/{REPOSITORY}/resolve/{MODEL_REVISION}/{MODEL_FILE}")
 }
 
 fn voice_url(voice: Voice) -> String {
     format!(
-        "https://huggingface.co/{REPOSITORY}/resolve/{MODEL_REVISION}/voices/{}.bin",
+        "https://huggingface.co/{REPOSITORY}/resolve/{MODEL_REVISION}/voices/{}.safetensors",
         voice.name()
     )
 }

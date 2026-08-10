@@ -27,6 +27,11 @@ crate = "language-tokenizer@0.1.0"
 expression = "WTFPL"
 license-files = [{ path = "LICENSE.md", hash = 0x2915ab65 }]
 
+[[licenses.clarify]]
+crate = "mach-sys@0.5.4"
+expression = "Apache-2.0"
+license-files = [{ path = "LICENSE-APACHE-2.0", hash = 0xb5518783 }]
+
 [bans]
 multiple-versions = "allow"
 wildcards = "deny"
