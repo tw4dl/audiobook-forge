@@ -1,0 +1,16 @@
+[package]
+name = "mlx-memory-control"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Audited MLX allocation-cache control boundary"
+license = "Apache-2.0"
+repository = "https://github.com/tw4dl/kokoro-book"
+publish = false
+
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+mlx-sys = "=0.2.0"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
