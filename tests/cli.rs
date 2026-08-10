@@ -11,6 +11,7 @@ fn help_describes_the_single_conversion_command() {
         .success()
         .stdout(predicate::str::contains("EPUB or TXT"))
         .stdout(predicate::str::contains("--voice"))
+        .stdout(predicate::str::contains("--pronunciation"))
         .stdout(predicate::str::contains("--output"));
 }
 
@@ -54,6 +55,10 @@ fn invalid_options_fail_before_any_download() {
         ),
         (vec!["--threads", "0"], "threads must be greater than zero"),
         (vec!["--voice", "ef_dora"], "unknown English voice"),
+        (
+            vec!["--pronunciation", "Cormer"],
+            "pronunciation must use WORD=IPA",
+        ),
         (
             vec!["--output", "book.mp3"],
             "output must use the .wav extension",

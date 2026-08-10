@@ -14,13 +14,18 @@ allow = [
   "Apache-2.0",
   "BSD-3-Clause",
   "CDLA-Permissive-2.0",
-  "GPL-3.0-or-later",
   "ISC",
   "MIT",
   "MPL-2.0",
   "Unicode-3.0",
+  "WTFPL",
   "Zlib",
 ]
+
+[[licenses.clarify]]
+crate = "language-tokenizer@0.1.0"
+expression = "WTFPL"
+license-files = [{ path = "LICENSE.md", hash = 0x2915ab65 }]
 
 [bans]
 multiple-versions = "allow"

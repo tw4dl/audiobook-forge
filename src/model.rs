@@ -1,91 +1,60 @@
-//! Download and validation for the single pinned Kokoro model bundle.
+//! Download and validation for the pinned Kokoro model and selected voice.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
-use bzip2::read::BzDecoder;
 use directories::BaseDirs;
 use indicatif::{ProgressBar, ProgressStyle};
 use sha2::{Digest, Sha256};
-use tempfile::{NamedTempFile, tempdir_in};
+use tempfile::NamedTempFile;
 
-pub const MODEL_BUNDLE_NAME: &str = "kokoro-multi-lang-v1_0";
-pub const MODEL_URL: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2";
-pub const MODEL_ARCHIVE_SHA256: &str =
-    "c133d26353d776da730870dac7da07dbfc9a5e3bc80cc5e8e83ab6e823be7046";
-const VERIFIED_MARKER: &str = ".kokoro-book-verified-v1";
-const MODEL_SHA256: &str = "c436dc6a842b62aba06af67e40bafcfb9c60ac3af895358f1974ad9a7f7c026b";
-const VOICES_SHA256: &str = "8a77c0d397026208d22211f37670b5b3b11e03f190756b25a1d24041fced82a9";
-const TOKENS_SHA256: &str = "6ebb6bb288f20f3ae8d004d3c2ca27697da27c037d75e81a60e2a6a663f95425";
-const LEXICON_SHA256: &str = "7daaab53a181be9885b853a8582bf1838186317e5dadacbcef9c426d6fa0da14";
+use crate::voice::Voice;
+
+pub const MODEL_REVISION: &str = "1939ad2a8e416c0acfeecc08a694d14ef25f2231";
+pub const MODEL_BUNDLE_NAME: &str = "Kokoro-82M-v1.0-ONNX-1939ad2a-q8f16";
+pub const MODEL_SHA256: &str = "04c658aec1b6008857c2ad10f8c589d4180d0ec427e7e6118ceb487e215c3cd0";
+const MODEL_FILE: &str = "model_q8f16.onnx";
+const REPOSITORY: &str = "onnx-community/Kokoro-82M-v1.0-ONNX";
 
 #[derive(Debug, Clone)]
 pub struct ModelAssets {
     pub model: PathBuf,
-    pub voices: PathBuf,
-    pub tokens: PathBuf,
-    pub data_dir: PathBuf,
-    pub lexicon_us: PathBuf,
+    pub voice: PathBuf,
 }
 
 impl ModelAssets {
-    /// Resolve and check the files required by the Kokoro runtime.
+    /// Resolve the files needed for one voice.
     ///
     /// # Errors
     ///
-    /// Returns an error that lists every missing model file or directory.
-    pub fn from_dir(root: &Path) -> Result<Self> {
+    /// Returns an error that lists every missing file.
+    pub fn from_dir(root: &Path, voice: Voice) -> Result<Self> {
         let assets = Self {
-            model: root.join("model.onnx"),
-            voices: root.join("voices.bin"),
-            tokens: root.join("tokens.txt"),
-            data_dir: root.join("espeak-ng-data"),
-            lexicon_us: root.join("lexicon-us-en.txt"),
+            model: root.join(MODEL_FILE),
+            voice: root.join("voices").join(format!("{}.bin", voice.name())),
         };
-        let mut missing = Vec::new();
-        for path in [
-            &assets.model,
-            &assets.voices,
-            &assets.tokens,
-            &assets.data_dir,
-            &assets.lexicon_us,
-        ] {
-            if !path.exists() {
-                missing.push(path.file_name().unwrap_or_default().to_string_lossy());
-            }
-        }
+        let missing = [&assets.model, &assets.voice]
+            .into_iter()
+            .filter(|path| !path.is_file())
+            .filter_map(|path| path.file_name())
+            .map(|name| name.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
         if !missing.is_empty() {
-            bail!(
-                "model bundle is incomplete; missing: {}",
-                missing.join(", ")
-            );
+            bail!("model cache is incomplete; missing: {}", missing.join(", "));
         }
         Ok(assets)
     }
 
-    /// Verify pinned hashes for the model, voices, tokens, and English lexicon.
+    /// Verify the model and selected voice against pinned SHA-256 hashes.
     ///
     /// # Errors
     ///
-    /// Returns an error when a file cannot be read or a hash does not match.
-    pub fn verify_hashes(&self) -> Result<()> {
-        for (path, expected) in [
-            (&self.model, MODEL_SHA256),
-            (&self.voices, VOICES_SHA256),
-            (&self.tokens, TOKENS_SHA256),
-            (&self.lexicon_us, LEXICON_SHA256),
-        ] {
-            let actual = sha256(path)?;
-            if actual != expected {
-                bail!(
-                    "model asset failed SHA-256 verification: {}",
-                    path.display()
-                );
-            }
-        }
-        Ok(())
+    /// Returns an error when a file cannot be read or has changed.
+    pub fn verify_hashes(&self, voice: Voice) -> Result<()> {
+        verify_file(&self.model, MODEL_SHA256)?;
+        verify_file(&self.voice, voice.sha256())
     }
 }
 
@@ -102,89 +71,90 @@ pub fn default_cache_dir() -> Result<PathBuf> {
     Ok(base.cache_dir().join("kokoro-book"))
 }
 
-/// Return a verified model bundle, downloading the pinned bundle when absent.
+/// Return verified model assets, downloading missing files from a pinned revision.
 ///
 /// # Errors
 ///
-/// Returns an error for cache, network, archive, or integrity failures.
-pub fn ensure_model(cache_dir: &Path) -> Result<ModelAssets> {
+/// Returns an error for cache, network, or integrity failures.
+pub fn ensure_model(cache_dir: &Path, voice: Voice) -> Result<ModelAssets> {
     let model_dir = cache_dir.join(MODEL_BUNDLE_NAME);
-    if marker_is_valid(&model_dir) {
-        return ModelAssets::from_dir(&model_dir);
-    }
-
-    fs::create_dir_all(cache_dir)
-        .with_context(|| format!("failed to create model cache {}", cache_dir.display()))?;
-    let _lock = DownloadLock::acquire(&cache_dir.join(".download.lock"))?;
-
-    if marker_is_valid(&model_dir) {
-        return ModelAssets::from_dir(&model_dir);
-    }
-    if model_dir.exists() {
-        let assets = ModelAssets::from_dir(&model_dir)
-            .with_context(|| format!("invalid existing model cache at {}", model_dir.display()))?;
-        assets.verify_hashes()?;
-        write_marker(&model_dir)?;
+    if let Ok(assets) = ModelAssets::from_dir(&model_dir, voice) {
+        assets.verify_hashes(voice)?;
         return Ok(assets);
     }
 
-    eprintln!("Downloading Kokoro v1.0 model (333 MiB)…");
-    let downloaded = download_archive(cache_dir)?;
-    let decoder = BzDecoder::new(BufReader::new(downloaded.reopen()?));
-    let staging = tempdir_in(cache_dir).context("failed to create model staging directory")?;
-    let mut archive = tar::Archive::new(decoder);
-    archive
-        .unpack(staging.path())
-        .context("failed to extract the model archive")?;
-    let extracted = staging.path().join(MODEL_BUNDLE_NAME);
-    let assets = ModelAssets::from_dir(&extracted)?;
-    assets.verify_hashes()?;
-    write_marker(&extracted)?;
-    fs::rename(&extracted, &model_dir).with_context(|| {
-        format!(
-            "failed to install model from {} to {}",
-            extracted.display(),
-            model_dir.display()
-        )
-    })?;
-    ModelAssets::from_dir(&model_dir)
+    fs::create_dir_all(model_dir.join("voices"))
+        .with_context(|| format!("failed to create model cache {}", model_dir.display()))?;
+    let _lock = DownloadLock::acquire(&cache_dir.join(".download.lock"))?;
+
+    let model = model_dir.join(MODEL_FILE);
+    ensure_asset(&model, &model_url(), MODEL_SHA256, "Kokoro model")?;
+    let voice_path = model_dir
+        .join("voices")
+        .join(format!("{}.bin", voice.name()));
+    ensure_asset(
+        &voice_path,
+        &voice_url(voice),
+        voice.sha256(),
+        &format!("Kokoro voice {}", voice.name()),
+    )?;
+
+    let assets = ModelAssets::from_dir(&model_dir, voice)?;
+    assets.verify_hashes(voice)?;
+    Ok(assets)
 }
 
-fn write_marker(model_dir: &Path) -> Result<()> {
-    fs::write(model_dir.join(VERIFIED_MARKER), marker_contents())
-        .context("failed to write model verification marker")
+fn model_url() -> String {
+    format!("https://huggingface.co/{REPOSITORY}/resolve/{MODEL_REVISION}/onnx/{MODEL_FILE}")
 }
 
-fn marker_is_valid(model_dir: &Path) -> bool {
-    fs::read_to_string(model_dir.join(VERIFIED_MARKER))
-        .is_ok_and(|contents| contents == marker_contents())
-}
-
-fn marker_contents() -> String {
+fn voice_url(voice: Voice) -> String {
     format!(
-        "bundle={MODEL_BUNDLE_NAME}\narchive_sha256={MODEL_ARCHIVE_SHA256}\nmodel_sha256={MODEL_SHA256}\n"
+        "https://huggingface.co/{REPOSITORY}/resolve/{MODEL_REVISION}/voices/{}.bin",
+        voice.name()
     )
 }
 
-fn download_archive(cache_dir: &Path) -> Result<NamedTempFile> {
-    let response = ureq::get(MODEL_URL)
+fn ensure_asset(path: &Path, url: &str, expected_hash: &str, label: &str) -> Result<()> {
+    if path.is_file() {
+        return verify_file(path, expected_hash);
+    }
+
+    eprintln!("Downloading {label}…");
+    let response = ureq::get(url)
         .call()
-        .map_err(|error| anyhow!("model download failed: {error}"))?;
+        .map_err(|error| anyhow!("{label} download failed: {error}"))?;
     let total = response
         .header("content-length")
         .and_then(|value| value.parse::<u64>().ok());
     let progress = download_progress(total);
     let reader = ProgressReader::new(response.into_reader(), progress.clone());
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow!("asset path has no parent: {}", path.display()))?;
     let mut downloaded =
-        NamedTempFile::new_in(cache_dir).context("failed to create temporary model archive")?;
+        NamedTempFile::new_in(parent).context("failed to create temporary model file")?;
     let actual = copy_and_hash(reader, downloaded.as_file_mut())?;
     progress.finish_and_clear();
-    if actual != MODEL_ARCHIVE_SHA256 {
+    if actual != expected_hash {
+        bail!("{label} failed SHA-256 verification: expected {expected_hash}, got {actual}");
+    }
+    downloaded
+        .persist(path)
+        .map_err(|error| error.error)
+        .with_context(|| format!("failed to save {}", path.display()))?;
+    Ok(())
+}
+
+fn verify_file(path: &Path, expected: &str) -> Result<()> {
+    let actual = sha256(path)?;
+    if actual != expected {
         bail!(
-            "model archive failed SHA-256 verification: expected {MODEL_ARCHIVE_SHA256}, got {actual}"
+            "cached model asset failed SHA-256 verification: {}; remove this file and retry",
+            path.display()
         );
     }
-    Ok(downloaded)
+    Ok(())
 }
 
 fn copy_and_hash<R: Read, W: Write>(mut reader: R, mut writer: W) -> Result<String> {
@@ -211,8 +181,7 @@ fn sha256(path: &Path) -> Result<String> {
     let mut digest = Sha256::new();
     io::copy(&mut file, &mut digest)
         .with_context(|| format!("failed to hash {}", path.display()))?;
-    let digest = digest.finalize();
-    Ok(format!("{digest:x}"))
+    Ok(format!("{:x}", digest.finalize()))
 }
 
 fn download_progress(total: Option<u64>) -> ProgressBar {
@@ -279,7 +248,9 @@ impl Drop for DownloadLock {
 mod tests {
     use std::io::Cursor;
 
-    use super::copy_and_hash;
+    use tempfile::NamedTempFile;
+
+    use super::{copy_and_hash, verify_file};
 
     #[test]
     fn hashes_downloaded_bytes_while_copying_them() {
@@ -293,5 +264,15 @@ mod tests {
             hash,
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+    }
+
+    #[test]
+    fn rejects_a_corrupt_cached_asset() {
+        let file = NamedTempFile::new().expect("cache fixture");
+        std::fs::write(file.path(), b"corrupt").expect("cache fixture data");
+
+        let error = verify_file(file.path(), &"0".repeat(64)).expect_err("hash must fail");
+
+        assert!(error.to_string().contains("remove this file and retry"));
     }
 }

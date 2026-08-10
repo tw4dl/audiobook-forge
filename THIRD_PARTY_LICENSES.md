@@ -1,70 +1,41 @@
 # Third-party licenses
 
-`kokoro-book` original code uses `GPL-3.0-or-later`. This choice permits the
-static eSpeak NG code required by the native Kokoro runtime.
+`kokoro-book` original code is Apache-2.0. This repository does not commit model weights or third-party binary artifacts.
 
-This repository does not commit model weights, native libraries, or other
-third-party binary artifacts.
+## License gate
 
-## Rust dependencies
+The three runtime dependencies that can grow optional native features have defaults disabled in `Cargo.toml`:
+
+```toml
+misaki-rs = { version = "0.3.0", default-features = false }
+ort = { version = "=2.0.0-rc.11", default-features = false, features = ["copy-dylibs", "download-binaries", "ndarray", "std", "tls-rustls"] }
+rbook = { version = "0.7.10", default-features = false }
+```
+
+`Cargo.lock` contains no `espeak-rs`, `sherpa-onnx`, GPL, or LGPL package. `cargo deny check licenses bans sources` checks every locked Rust package. The accepted license list in `deny.toml` contains no GPL or LGPL identifier.
+
+## Main Rust and native components
 
 | Component | Use | License | Source |
 | --- | --- | --- | --- |
-| `rbook` | EPUB 2 and 3 reading | Apache-2.0 | [DevinSterling/rbook](https://github.com/DevinSterling/rbook) |
-| `sherpa-onnx` and `sherpa-onnx-sys` 1.13.4 | Rust API and native library selection | Apache-2.0 | [k2-fsa/sherpa-onnx v1.13.4](https://github.com/k2-fsa/sherpa-onnx/tree/v1.13.4) |
-| Other Rust crates | CLI, archive, HTTP, text, and WAV support | Apache-2.0, BSD-3-Clause, CDLA-Permissive-2.0, GPL-3.0-or-later, ISC, MIT, MPL-2.0, Unicode-3.0, or Zlib | Exact versions and checksums are in `Cargo.lock` |
+| `rbook` 0.7.10 | EPUB 2 and 3 reading | Apache-2.0 | [DevinSterling/rbook](https://github.com/DevinSterling/rbook) |
+| `misaki-rs` 0.3.0 | English G2P, lexicons, and POS data | MIT for the Rust port; its upstream documentation points underlying dictionary data to Apache-2.0 Misaki | [crates.io package](https://crates.io/crates/misaki-rs/0.3.0), [MicheleYin/misaki-rs](https://github.com/MicheleYin/misaki-rs), [hexgrad/misaki](https://github.com/hexgrad/misaki) |
+| `language-tokenizer` 0.1.0 | Transitive tokenization support | WTFPL | [savannstm/language-tokenizer at the packaged revision](https://github.com/savannstm/language-tokenizer/tree/86f2cbc67384d9913186c3ae0b3e862359349c31) |
+| `ort` and `ort-sys` 2.0.0-rc.11 | Safe Rust ONNX Runtime API and bindings | MIT OR Apache-2.0 | [pykeio/ort](https://github.com/pykeio/ort) |
+| ONNX Runtime 1.23.2 | Native inference runtime selected by `ort-sys` | MIT | [microsoft/onnxruntime v1.23.2](https://github.com/microsoft/onnxruntime/tree/v1.23.2) |
 
-`cargo deny check licenses bans sources` checks every Rust package in
-`Cargo.lock`. `deny.toml` contains the accepted SPDX identifiers. The audit
-does not inspect native archives or downloaded model data, so those are listed
-separately below.
+`language-tokenizer` omits a manifest license field. Its packaged `LICENSE.md` is WTFPL. `deny.toml` pins that conclusion to cargo-deny's opaque file hash `0x2915ab65`, so a changed license file fails the clarification.
 
-## Native static runtime
+Other locked Rust crates use one or more of: 0BSD, Apache-2.0, Apache-2.0 WITH LLVM-exception, BSD-3-Clause, CDLA-Permissive-2.0, ISC, MIT, MPL-2.0, Unicode-3.0, Unlicense, WTFPL, or Zlib. Exact versions and checksums are in `Cargo.lock`. Feature selections are in `Cargo.toml`. The `cargo deny` report checks the license expressions.
 
-The `sherpa-onnx-sys` `static` feature links these libraries into the CLI:
+## Downloaded Kokoro assets
 
-| Linked code | License | Source |
+The CLI pins [`onnx-community/Kokoro-82M-v1.0-ONNX`](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/tree/1939ad2a8e416c0acfeecc08a694d14ef25f2231) at revision `1939ad2a8e416c0acfeecc08a694d14ef25f2231`.
+
+| Files | Use | License and integrity |
 | --- | --- | --- |
-| sherpa-onnx core and C API | Apache-2.0 | [k2-fsa/sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx/tree/v1.13.4) |
-| kaldi-decoder | Apache-2.0 | [k2-fsa/kaldi-decoder](https://github.com/k2-fsa/kaldi-decoder/tree/v0.3.0) |
-| kaldi-native-fbank | Apache-2.0 | [csukuangfj/kaldi-native-fbank](https://github.com/csukuangfj/kaldi-native-fbank/tree/v1.22.3) |
-| OpenFst libraries | Apache-2.0 | [csukuangfj/openfst](https://github.com/csukuangfj/openfst/tree/v1.8.5-2026-04-11) |
-| simple-sentencepiece | Apache-2.0 | [pkufool/simple-sentencepiece](https://github.com/pkufool/simple-sentencepiece/tree/v0.7) |
-| ONNX Runtime 1.27.0 | MIT | [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime) |
-| piper-phonemize | MIT | [csukuangfj/piper-phonemize](https://github.com/csukuangfj/piper-phonemize/tree/f3ff95afc03640bc1399e113e83361192a2fafb4) |
-| KissFFT | BSD-3-Clause | [mborgerding/kissfft](https://github.com/mborgerding/kissfft) |
-| eSpeak NG and its `ucd-tools` code | GPL-3.0-or-later | [eSpeak NG source used by sherpa-onnx](https://github.com/csukuangfj/espeak-ng/tree/ed530aa113046142eb5115cf2fc9157854d0ffe1) |
-| Unicode data used by eSpeak NG `ucd-tools` | Unicode-DFS-2016 | [eSpeak NG Unicode notice](https://github.com/espeak-ng/espeak-ng/blob/master/COPYING.UCD) |
+| `onnx/model_q8f16.onnx` | Kokoro v1.0 inference | Apache-2.0; SHA-256 `04c658aec1b6008857c2ad10f8c589d4180d0ec427e7e6118ceb487e215c3cd0` |
+| `voices/<preset>.bin` | One selected preset voice | Apache-2.0; every English voice SHA-256 is pinned in `src/voice.rs` |
+| Kokoro v1.0 vocabulary | Embedded phoneme-to-token map | Apache-2.0; copied from [`hexgrad/Kokoro-82M` config revision `f3ff3571`](https://huggingface.co/hexgrad/Kokoro-82M/blob/f3ff3571791e39611d31c381e3a41a3af07b4987/config.json) |
 
-The eSpeak NG source tree also carries Apache-2.0 and BSD-2-Clause notices for
-specific upstream files. See its
-[`COPYING.APACHE`](https://github.com/espeak-ng/espeak-ng/blob/master/COPYING.APACHE)
-and
-[`COPYING.BSD2`](https://github.com/espeak-ng/espeak-ng/blob/master/COPYING.BSD2)
-files.
-
-## Downloaded Kokoro model bundle
-
-The CLI pins and downloads `kokoro-multi-lang-v1_0`. It reads only the English
-runtime files shown first:
-
-| Files | Use | License and origin |
-| --- | --- | --- |
-| `model.onnx`, `voices.bin`, `tokens.txt` | Kokoro inference and preset voices | Apache-2.0; exported from [hexgrad/Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) by [sherpa-onnx Kokoro scripts](https://github.com/k2-fsa/sherpa-onnx/tree/v1.13.4/scripts/kokoro/v1.0) |
-| `lexicon-us-en.txt` | American English lexicon | Apache-2.0; generated by sherpa-onnx from [Misaki](https://github.com/hexgrad/misaki) data |
-| `espeak-ng-data/**` | English fallback phonemes | GPL-3.0-or-later, with Apache-2.0, BSD-2-Clause, and Unicode-DFS-2016 portions covered by the eSpeak NG notices linked above |
-| `LICENSE`, `README.md` | Bundle license and note | Apache-2.0 |
-
-The downloaded archive also contains files that this English-only CLI does not
-read:
-
-| Files | License and origin |
-| --- | --- |
-| `lexicon-gb-en.txt` | Apache-2.0; Misaki data and sherpa-onnx generator |
-| `lexicon-zh.txt` | Apache-2.0 and MIT source data; sherpa-onnx, Misaki, and python-pinyin |
-| `date-zh.fst`, `number-zh.fst`, `phone-zh.fst` | Apache-2.0; sherpa-onnx |
-| `dict/**` | MIT; [CppJieba](https://github.com/yanyiwu/cppjieba) dictionaries |
-
-The downloaded directory keeps the bundle's Apache-2.0 `LICENSE` file. eSpeak
-NG terms still apply to its copied code and data. The project-level GPL license
-does not replace any third-party license.
+The model repository declares Apache-2.0. The project does not download an eSpeak binary, eSpeak data, a combined voice bundle, or another model.

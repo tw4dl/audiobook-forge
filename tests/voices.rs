@@ -4,7 +4,8 @@ use kokoro_book::voice::{DEFAULT_VOICE, ENGLISH_VOICES, Voice};
 fn default_voice_is_the_benchmarked_preset() {
     let voice: Voice = DEFAULT_VOICE.parse().expect("default voice");
     assert_eq!(voice.name(), "af_heart");
-    assert_eq!(voice.speaker_id(), 3);
+    assert!(!voice.is_british());
+    assert_eq!(voice.sha256().len(), 64);
 }
 
 #[test]
@@ -16,6 +17,7 @@ fn exposes_only_english_presets() {
             || voice.name.starts_with("bf_")
             || voice.name.starts_with("bm_")
     }));
+    assert!(ENGLISH_VOICES.iter().all(|voice| voice.sha256.len() == 64));
 }
 
 #[test]

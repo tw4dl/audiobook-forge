@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 
 use crate::input::read_book;
 use crate::model::{default_cache_dir, ensure_model};
+use crate::phoneme::Pronunciation;
 use crate::tts::{SynthesisOptions, synthesize_to_wav, validate_settings};
 use crate::voice::{DEFAULT_VOICE, ENGLISH_VOICES, Voice};
 
@@ -34,6 +35,10 @@ struct Cli {
     /// Speech speed from 0.5 to 2.0
     #[arg(long, default_value_t = 1.0)]
     speed: f32,
+
+    /// Override one word's pronunciation with IPA; repeat as needed
+    #[arg(long, value_name = "WORD=IPA")]
+    pronunciation: Vec<Pronunciation>,
 
     /// Text characters per synthesis chunk
     #[arg(long, default_value_t = 450, hide = true)]
@@ -94,13 +99,14 @@ fn run_with(cli: Cli) -> Result<()> {
     let voice = Voice::from_str(&cli.voice)?;
     validate_settings(cli.speed, cli.chunk_chars, cli.threads)?;
     let cache = default_cache_dir()?;
-    let assets = ensure_model(&cache)?;
+    let assets = ensure_model(&cache, voice)?;
     let report = synthesize_to_wav(
         &assets,
         &SynthesisOptions {
             text: &book.text,
             output: &output,
             voice,
+            pronunciations: &cli.pronunciation,
             speed: cli.speed,
             chunk_chars: cli.chunk_chars,
             threads: cli.threads,

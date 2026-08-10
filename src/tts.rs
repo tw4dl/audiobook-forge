@@ -1,4 +1,4 @@
-//! Kokoro synthesis and streaming WAV output.
+//! Kokoro synthesis and atomic WAV output.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -7,37 +7,42 @@ use std::time::Instant;
 use anyhow::{Context, Result, anyhow, bail};
 use hound::{SampleFormat, WavSpec, WavWriter};
 use indicatif::{ProgressBar, ProgressStyle};
-use sherpa_onnx::{
-    GenerationConfig, OfflineTts, OfflineTtsConfig, OfflineTtsKokoroModelConfig,
-    OfflineTtsModelConfig,
-};
+use ndarray::Array;
+use ort::inputs;
+use ort::session::Session;
+use ort::value::TensorRef;
 use tempfile::NamedTempFile;
 
 use crate::chunk::chunk_text;
 use crate::model::ModelAssets;
+use crate::phoneme::{Phonemizer, Pronunciation};
+use crate::vocab;
 use crate::voice::Voice;
 
-pub const SAMPLE_RATE: u32 = 24_000;
+const SAMPLE_RATE: u32 = 24_000;
 const SILENCE_MS: u32 = 120;
+const STYLE_SIZE: usize = 256;
+const STYLE_FRAME_BYTES: usize = STYLE_SIZE * size_of::<f32>();
 
 #[derive(Debug, Clone)]
-pub struct SynthesisReport {
-    pub output: PathBuf,
-    pub chunks: usize,
-    pub model_load_seconds: f64,
-    pub synthesis_seconds: f64,
-    pub audio_seconds: f64,
-    pub rtf: f64,
+pub(crate) struct SynthesisReport {
+    pub(crate) output: PathBuf,
+    pub(crate) chunks: usize,
+    pub(crate) model_load_seconds: f64,
+    pub(crate) synthesis_seconds: f64,
+    pub(crate) audio_seconds: f64,
+    pub(crate) rtf: f64,
 }
 
-pub struct SynthesisOptions<'a> {
-    pub text: &'a str,
-    pub output: &'a Path,
-    pub voice: Voice,
-    pub speed: f32,
-    pub chunk_chars: usize,
-    pub threads: i32,
-    pub quiet: bool,
+pub(crate) struct SynthesisOptions<'a> {
+    pub(crate) text: &'a str,
+    pub(crate) output: &'a Path,
+    pub(crate) voice: Voice,
+    pub(crate) pronunciations: &'a [Pronunciation],
+    pub(crate) speed: f32,
+    pub(crate) chunk_chars: usize,
+    pub(crate) threads: i32,
+    pub(crate) quiet: bool,
 }
 
 /// Check synthesis settings before model setup.
@@ -62,8 +67,8 @@ pub fn validate_settings(speed: f32, chunk_chars: usize, threads: i32) -> Result
 ///
 /// # Errors
 ///
-/// Returns an error for invalid options, model failures, empty audio, or output failures.
-pub fn synthesize_to_wav(
+/// Returns an error for invalid options, phonemes, model output, or file output.
+pub(crate) fn synthesize_to_wav(
     assets: &ModelAssets,
     options: &SynthesisOptions<'_>,
 ) -> Result<SynthesisReport> {
@@ -74,20 +79,9 @@ pub fn synthesize_to_wav(
     }
 
     let load_started = Instant::now();
-    let engine = create_engine(assets, options.threads)?;
+    let mut engine = Engine::new(assets, options.threads)?;
+    let phonemizer = Phonemizer::new(options.voice.is_british(), options.pronunciations);
     let model_load_seconds = load_started.elapsed().as_secs_f64();
-    if engine.sample_rate() != SAMPLE_RATE.cast_signed() {
-        bail!(
-            "Kokoro returned an unexpected sample rate: {}",
-            engine.sample_rate()
-        );
-    }
-    if options.voice.speaker_id() >= engine.num_speakers() {
-        bail!(
-            "voice {} is not present in this model bundle",
-            options.voice
-        );
-    }
 
     let output_parent = options.output.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(output_parent).with_context(|| {
@@ -116,27 +110,24 @@ pub fn synthesize_to_wav(
         let mut writer =
             WavWriter::new(&mut temporary, spec).context("failed to start WAV output")?;
         for (index, chunk) in chunks.iter().enumerate() {
+            let phonemes = phonemizer
+                .phonemize(chunk)
+                .with_context(|| format!("failed to phonemize chunk {}", index + 1))?;
+            let tokens = vocab::token_ids(&phonemes)
+                .with_context(|| format!("invalid phonemes in chunk {}", index + 1))?;
             let started = Instant::now();
             let generated = engine
-                .generate_with_config(
-                    chunk,
-                    &GenerationConfig {
-                        sid: options.voice.speaker_id(),
-                        speed: options.speed,
-                        ..Default::default()
-                    },
-                    None::<fn(&[f32], f32) -> bool>,
-                )
-                .ok_or_else(|| anyhow!("Kokoro failed to synthesize chunk {}", index + 1))?;
+                .generate(&tokens, options.speed)
+                .with_context(|| format!("Kokoro failed to synthesize chunk {}", index + 1))?;
             let elapsed = started.elapsed().as_secs_f64();
-            if generated.samples().is_empty() {
+            if generated.is_empty() {
                 bail!("Kokoro returned empty audio for chunk {}", index + 1);
             }
             let sample_count =
-                u64::try_from(generated.samples().len()).context("generated chunk is too large")?;
+                u64::try_from(generated.len()).context("generated chunk is too large")?;
             synthesis_seconds += elapsed;
             generated_samples += sample_count;
-            write_samples(&mut writer, generated.samples())?;
+            write_samples(&mut writer, &generated)?;
 
             if index + 1 < chunks.len() {
                 let silence_samples = u64::from(SAMPLE_RATE) * u64::from(SILENCE_MS) / 1_000;
@@ -168,27 +159,67 @@ pub fn synthesize_to_wav(
     })
 }
 
-fn create_engine(assets: &ModelAssets, threads: i32) -> Result<OfflineTts> {
-    let path = |path: &Path| path.to_string_lossy().into_owned();
-    let config = OfflineTtsConfig {
-        model: OfflineTtsModelConfig {
-            kokoro: OfflineTtsKokoroModelConfig {
-                model: Some(path(&assets.model)),
-                voices: Some(path(&assets.voices)),
-                tokens: Some(path(&assets.tokens)),
-                data_dir: Some(path(&assets.data_dir)),
-                dict_dir: None,
-                lexicon: Some(path(&assets.lexicon_us)),
-                lang: Some("en-us".to_owned()),
-                length_scale: 1.0,
-            },
-            num_threads: threads,
-            debug: false,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    OfflineTts::create(&config).ok_or_else(|| anyhow!("failed to load Kokoro model"))
+struct Engine {
+    session: Session,
+    styles: Vec<f32>,
+}
+
+impl Engine {
+    fn new(assets: &ModelAssets, threads: i32) -> Result<Self> {
+        let threads = usize::try_from(threads).context("thread count is too large")?;
+        let session = Session::builder()
+            .context("failed to configure ONNX Runtime")?
+            .with_intra_threads(threads)
+            .context("failed to set ONNX Runtime threads")?
+            .commit_from_file(&assets.model)
+            .with_context(|| format!("failed to load Kokoro model {}", assets.model.display()))?;
+        let styles = read_voice(&assets.voice)?;
+        Ok(Self { session, styles })
+    }
+
+    fn generate(&mut self, tokens: &[i64], speed: f32) -> Result<Vec<f32>> {
+        let phoneme_count = tokens
+            .len()
+            .checked_sub(2)
+            .ok_or_else(|| anyhow!("invalid padded token sequence"))?;
+        let style = self.style(phoneme_count)?;
+        let input_ids = Array::from_shape_vec((1, tokens.len()), tokens.to_vec())?;
+        let style = Array::from_shape_vec((1, STYLE_SIZE), style)?;
+        let speed = Array::from_vec(vec![speed]);
+        let outputs = self.session.run(inputs![
+            "input_ids" => TensorRef::from_array_view(&input_ids)?,
+            "style" => TensorRef::from_array_view(&style)?,
+            "speed" => TensorRef::from_array_view(&speed)?,
+        ])?;
+        let (_, waveform) = outputs["waveform"].try_extract_tensor::<f32>()?;
+        Ok(waveform.to_vec())
+    }
+
+    fn style(&self, phoneme_count: usize) -> Result<Vec<f32>> {
+        style_frame(&self.styles, phoneme_count)
+    }
+}
+
+fn style_frame(styles: &[f32], phoneme_count: usize) -> Result<Vec<f32>> {
+    let frames = styles.len() / STYLE_SIZE;
+    if phoneme_count >= frames {
+        bail!("voice has {frames} style frames but phoneme sequence needs index {phoneme_count}");
+    }
+    let start = phoneme_count * STYLE_SIZE;
+    Ok(styles[start..start + STYLE_SIZE].to_vec())
+}
+
+fn read_voice(path: &Path) -> Result<Vec<f32>> {
+    let bytes = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
+    if bytes.is_empty() || bytes.len() % STYLE_FRAME_BYTES != 0 {
+        bail!("invalid Kokoro voice file: {}", path.display());
+    }
+    Ok(bytes
+        .as_chunks::<{ size_of::<f32>() }>()
+        .0
+        .iter()
+        .map(|chunk| f32::from_le_bytes(*chunk))
+        .collect())
 }
 
 fn write_samples<W: std::io::Write + std::io::Seek>(
@@ -209,13 +240,11 @@ fn write_samples<W: std::io::Write + std::io::Seek>(
 
 #[allow(clippy::cast_precision_loss)]
 fn samples_to_seconds(sample_count: u64) -> f64 {
-    // A classic WAV cannot hold enough samples to exceed f64's exact integer range.
     sample_count as f64 / f64::from(SAMPLE_RATE)
 }
 
 #[allow(clippy::cast_possible_truncation)]
 fn float_to_i16(sample: f32) -> i16 {
-    // Callers clamp and scale the sample to the full i16 range first.
     sample.round() as i16
 }
 
@@ -229,4 +258,50 @@ fn synthesis_progress(length: u64, quiet: bool) -> ProgressBar {
             .unwrap_or_else(|_| ProgressStyle::default_bar()),
     );
     progress
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use hound::{SampleFormat, WavSpec, WavWriter};
+    use tempfile::tempdir;
+
+    use super::{SAMPLE_RATE, STYLE_SIZE, read_voice, style_frame, write_samples};
+
+    #[test]
+    fn rejects_a_malformed_voice_file() {
+        let temp = tempdir().expect("temp dir");
+        let path = temp.path().join("voice.bin");
+        std::fs::write(&path, [0_u8; 3]).expect("voice fixture");
+
+        let error = read_voice(&path).expect_err("malformed voice must fail");
+
+        assert!(error.to_string().contains("invalid Kokoro voice file"));
+    }
+
+    #[test]
+    fn rejects_a_style_index_outside_the_voice() {
+        let styles = vec![0.0; STYLE_SIZE * 2];
+
+        assert!(style_frame(&styles, 1).is_ok());
+        let error = style_frame(&styles, 2).expect_err("out-of-range style must fail");
+
+        assert!(error.to_string().contains("needs index 2"));
+    }
+
+    #[test]
+    fn rejects_non_finite_audio() {
+        let spec = WavSpec {
+            channels: 1,
+            sample_rate: SAMPLE_RATE,
+            bits_per_sample: 16,
+            sample_format: SampleFormat::Int,
+        };
+        let mut writer = WavWriter::new(Cursor::new(Vec::new()), spec).expect("WAV writer");
+
+        let error = write_samples(&mut writer, &[f32::NAN]).expect_err("NaN must fail");
+
+        assert!(error.to_string().contains("non-finite audio"));
+    }
 }
