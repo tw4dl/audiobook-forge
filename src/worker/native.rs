@@ -11,7 +11,9 @@ use anyhow::{Result, bail};
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use mlx_memory_control::{clear_cache, memory_stats, set_cache_limit};
 
-use super::{WorkerLaunch, WorkerStats};
+use super::WorkerLaunch;
+#[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
+use super::WorkerStats;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use super::{WorkerRequest, WorkerResponse, read_request, write_response};
 
@@ -135,6 +137,7 @@ fn checked_stats(launch: &WorkerLaunch) -> Result<WorkerStats> {
     Ok(stats)
 }
 
+#[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
 const fn memory_limit_crossed(stats: WorkerStats, limit: u64) -> bool {
     stats.active_bytes >= limit || stats.peak_bytes >= limit
 }
