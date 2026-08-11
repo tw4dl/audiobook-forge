@@ -1185,6 +1185,8 @@ dependencies = [
  "pulldown-cmark",
  "quick-xml",
  "rbook",
+ "serde",
+ "serde_json",
  "sha2",
  "tempfile",
  "thiserror",

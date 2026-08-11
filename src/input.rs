@@ -204,10 +204,6 @@ pub(super) fn text_source_range(source_id: &str, start: usize, end: usize) -> So
     }
 }
 
-pub(super) fn epub_source_position(resource: &str, fragment: Option<&str>) -> SourcePosition {
-    epub_source_position_at(resource, fragment, None)
-}
-
 pub(super) fn epub_source_position_at(
     resource: &str,
     fragment: Option<&str>,

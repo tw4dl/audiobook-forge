@@ -190,7 +190,7 @@ pub struct FigureBlock {
 }
 
 /// A half-open range in one imported source (`start..end`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct SourceRange {
     pub source_id: String,
     pub start: SourcePosition,
@@ -204,7 +204,8 @@ pub struct PageMarker {
 }
 
 /// A source position that keeps format-specific coordinates behind one API.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum SourcePosition {
     /// A UTF-8 byte offset in TXT, Markdown, or standalone HTML.
     Text { byte_offset: usize },

@@ -7,15 +7,17 @@ mod structured_epub;
 #[path = "support/utf16_epub.rs"]
 mod utf16_epub;
 use structured_epub::{
-    COVER_BYTES, chapter_two_page_9_character_offset, write_epub3_with_deep_navigation,
-    write_epub3_with_disguised_deep_navigation, write_epub3_with_file_only_toc_target,
-    write_epub3_with_headingless_semantic_container, write_epub3_with_interleaved_toc_groups,
-    write_epub3_with_invalid_toc_target, write_epub3_with_inverted_parent_child_toc,
-    write_epub3_with_malformed_navigation, write_epub3_with_malformed_navigation_and_tail,
-    write_epub3_with_prose_before_targeted_heading, write_epub3_with_reversed_same_document_toc,
-    write_epub3_with_reversed_toc, write_epub3_with_tokenized_navigation,
-    write_epub3_with_unlisted_headingless_tail, write_structured_epub2, write_structured_epub3,
-    write_structured_epub3_with_container_target, write_structured_epub3_without_page_list,
+    COVER_BYTES, chapter_one_page_7_character_offset, chapter_two_page_8_character_offset,
+    chapter_two_page_9_character_offset, legacy_page_11_character_offset,
+    write_epub3_with_deep_navigation, write_epub3_with_disguised_deep_navigation,
+    write_epub3_with_file_only_toc_target, write_epub3_with_headingless_semantic_container,
+    write_epub3_with_interleaved_toc_groups, write_epub3_with_invalid_toc_target,
+    write_epub3_with_inverted_parent_child_toc, write_epub3_with_malformed_navigation,
+    write_epub3_with_malformed_navigation_and_tail, write_epub3_with_prose_before_targeted_heading,
+    write_epub3_with_reversed_same_document_toc, write_epub3_with_reversed_toc,
+    write_epub3_with_tokenized_navigation, write_epub3_with_unlisted_headingless_tail,
+    write_structured_epub2, write_structured_epub3, write_structured_epub3_with_container_target,
+    write_structured_epub3_without_page_list,
 };
 use utf16_epub::{write_utf16_deep_navigation_epub3, write_utf16_epub3};
 
@@ -85,7 +87,7 @@ fn imports_epub3_metadata_navigation_pages_cover_and_spine_content() {
         SourcePosition::Epub {
             resource: "/EPUB/chapter-1.xhtml".to_owned(),
             fragment: Some("page-7".to_owned()),
-            character_offset: None,
+            character_offset: Some(chapter_one_page_7_character_offset()),
         }
     );
 }
@@ -109,6 +111,13 @@ fn imports_epub3_pagebreaks_when_navigation_has_no_page_list() {
         } if resource == "/EPUB/chapter-1.xhtml" && fragment == "page-7"
     ));
     assert_eq!(book.pages[1].label, "8");
+    assert!(matches!(
+        &book.pages[1].position,
+        SourcePosition::Epub {
+            character_offset: Some(offset),
+            ..
+        } if *offset == chapter_two_page_8_character_offset()
+    ));
     assert_eq!(book.pages[2].label, "9");
     assert_eq!(
         book.pages[2].position,
@@ -362,10 +371,8 @@ fn reads_tokenized_navigation_and_image_alternative_labels() {
 
     let book = read_book(&path).expect("tokenized navigation");
 
-    assert_eq!(
-        book.root.children[0].title.as_deref(),
-        Some("Image Chapter")
-    );
+    assert_eq!(book.root.children[0].title.as_deref(), Some("1"));
+    assert_eq!(book.root.children[0].kind, SectionKind::Chapter);
     assert_eq!(book.pages.len(), 1);
     assert_eq!(book.pages[0].label, "42");
 }
@@ -423,7 +430,7 @@ fn imports_epub2_ncx_page_list_metadata_cover_and_spine_content() {
         SourcePosition::Epub {
             resource: "/OPS/chapter.xhtml".to_owned(),
             fragment: Some("page-11".to_owned()),
-            character_offset: None,
+            character_offset: Some(legacy_page_11_character_offset()),
         }
     );
 }

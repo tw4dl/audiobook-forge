@@ -6,7 +6,9 @@ use rbook::epub::toc::EpubTocEntry;
 use crate::book::{PageMarker, Provenance, Section, SectionKind, SourcePosition, SourceRange};
 
 use super::super::html::{ParsedEpubNavigation, ParsedNavigationEntry, parse_epub_navigation};
-use super::super::{epub_source_position, epub_source_range, heading_kind, semantic_section_kind};
+use super::super::{
+    epub_source_position_at, epub_source_range_at, heading_kind, semantic_section_kind,
+};
 use super::content::SpineDocument;
 use super::protection::path::normalize_archive_path;
 
@@ -362,15 +364,24 @@ fn section_kind(kind: &str, label: &str) -> SectionKind {
 struct ResolvedTarget {
     resource: String,
     fragment: Option<String>,
+    character_offset: Option<usize>,
 }
 
 impl ResolvedTarget {
     fn source_range(&self) -> SourceRange {
-        epub_source_range(&self.resource, self.fragment.as_deref())
+        epub_source_range_at(
+            &self.resource,
+            self.fragment.as_deref(),
+            self.character_offset,
+        )
     }
 
     fn source_position(&self) -> SourcePosition {
-        epub_source_position(&self.resource, self.fragment.as_deref())
+        epub_source_position_at(
+            &self.resource,
+            self.fragment.as_deref(),
+            self.character_offset,
+        )
     }
 }
 
@@ -410,15 +421,23 @@ fn resolved_target(
         .fragment()
         .map(percent_decode)
         .filter(|fragment| !fragment.is_empty());
-    if let Some(fragment) = fragment.as_deref()
-        && !spine_index
+    let character_offset = if let Some(fragment) = fragment.as_deref() {
+        let Some(offset) = spine_index
             .anchors
             .get(&resource)
-            .is_some_and(|anchors| anchors.contains_key(fragment))
-    {
-        return Err(TargetIssue::MissingFragment(fragment.to_owned()));
-    }
-    Ok(Some(ResolvedTarget { resource, fragment }))
+            .and_then(|anchors| anchors.get(fragment))
+        else {
+            return Err(TargetIssue::MissingFragment(fragment.to_owned()));
+        };
+        *offset
+    } else {
+        None
+    };
+    Ok(Some(ResolvedTarget {
+        resource,
+        fragment,
+        character_offset,
+    }))
 }
 
 fn resolved_raw_target(
@@ -455,15 +474,23 @@ fn resolved_raw_target(
     let fragment = fragment
         .map(percent_decode)
         .filter(|fragment| !fragment.is_empty());
-    if let Some(fragment) = fragment.as_deref()
-        && !spine_index
+    let character_offset = if let Some(fragment) = fragment.as_deref() {
+        let Some(offset) = spine_index
             .anchors
             .get(&resource)
-            .is_some_and(|anchors| anchors.contains_key(fragment))
-    {
-        return Err(TargetIssue::MissingFragment(fragment.to_owned()));
-    }
-    Ok(Some(ResolvedTarget { resource, fragment }))
+            .and_then(|anchors| anchors.get(fragment))
+        else {
+            return Err(TargetIssue::MissingFragment(fragment.to_owned()));
+        };
+        *offset
+    } else {
+        None
+    };
+    Ok(Some(ResolvedTarget {
+        resource,
+        fragment,
+        character_offset,
+    }))
 }
 
 fn page_markers(

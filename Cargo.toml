@@ -24,6 +24,8 @@ misaki-rs = { version = "0.3.0", default-features = false }
 pulldown-cmark = { version = "0.13.4", default-features = false }
 quick-xml = "0.41.0"
 rbook = { version = "0.7.10", default-features = false }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
 sha2 = "0.10.9"
 tempfile = "3.23.0"
 thiserror = "2.0.17"

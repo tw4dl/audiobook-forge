@@ -104,6 +104,15 @@ impl StreamingWav {
             .checked_mul(u64::from(milliseconds))
             .context("silence duration overflow")?
             / 1_000;
+        self.write_silence_samples(silence_samples)
+    }
+
+    /// Append an exact count of digital-silence samples.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the sample count overflows or WAV writing fails.
+    pub fn write_silence_samples(&mut self, silence_samples: u64) -> Result<()> {
         let writer = self
             .writer
             .as_mut()

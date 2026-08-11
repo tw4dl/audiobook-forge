@@ -184,7 +184,7 @@ pub(super) fn write_epub3_with_headingless_semantic_container(path: &Path) {
 pub(super) fn write_epub3_with_tokenized_navigation(path: &Path) {
     write_minimal_epub3(
         path,
-        br#"<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="custom:foo toc"><ol><li><a id="image-chapter" href="chapter.xhtml#chapter"><img alt="Image Chapter" src="label.png"/></a></li></ol></nav><nav epub:type="custom:foo page-list"><ol><li><a href="chapter.xhtml#page"><img alt="42" src="page.png"/></a></li></ol></nav></body></html>"#,
+        br#"<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="custom:foo toc"><ol><li><a id="image-chapter" epub:type="chapter custom:foo" href="chapter.xhtml#chapter"><img alt="1" src="label.png"/></a></li></ol></nav><nav epub:type="custom:foo page-list"><ol><li><a href="chapter.xhtml#page"><img alt="42" src="page.png"/></a></li></ol></nav></body></html>"#,
         &[(
             "chapter.xhtml",
             br#"<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><h1 id="chapter">Derived Name</h1><span id="page" epub:type="pagebreak"/><p>Tokenized navigation body.</p></body></html>"#,
@@ -420,6 +420,27 @@ pub(super) fn chapter_two_page_9_character_offset() -> usize {
     let byte_offset = source
         .find(r#"<span epub:type="pagebreak" aria-label="9"/>"#)
         .expect("page 9 fixture");
+    source[..byte_offset].chars().count()
+}
+
+pub(super) fn chapter_one_page_7_character_offset() -> usize {
+    character_offset(chapter_one(), r#"id="page-7""#)
+}
+
+pub(super) fn chapter_two_page_8_character_offset() -> usize {
+    character_offset(chapter_two(), r#"id="page-8""#)
+}
+
+pub(super) fn legacy_page_11_character_offset() -> usize {
+    character_offset(legacy_chapter(), r#"id="page-11""#)
+}
+
+fn character_offset(source: &[u8], marker: &str) -> usize {
+    let source = std::str::from_utf8(source).expect("XHTML fixture is UTF-8");
+    let marker_offset = source.find(marker).expect("page marker fixture");
+    let byte_offset = source[..marker_offset]
+        .rfind('<')
+        .expect("page marker element");
     source[..byte_offset].chars().count()
 }
 
