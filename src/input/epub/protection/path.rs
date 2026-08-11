@@ -21,7 +21,10 @@ pub(super) fn normalize_manifest_location(
     normalize_archive_path(base, reference).map(ManifestLocation::Archive)
 }
 
-pub(super) fn normalize_archive_path(base: Option<&str>, reference: &str) -> Option<String> {
+pub(in crate::input::epub) fn normalize_archive_path(
+    base: Option<&str>,
+    reference: &str,
+) -> Option<String> {
     let reference_end = reference.find(['?', '#']).unwrap_or(reference.len());
     let decoded = percent_decode(reference.get(..reference_end)?)?;
     if decoded.is_empty()

@@ -170,6 +170,28 @@ pub(super) fn write_structured_epub3_with_container_target(path: &Path) {
     );
 }
 
+pub(super) fn write_epub3_with_headingless_semantic_container(path: &Path) {
+    write_minimal_epub3(
+        path,
+        br#"<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc"><ol/></nav></body></html>"#,
+        &[(
+            "chapter.xhtml",
+            br#"<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><section epub:type="chapter" id="chapter"><p>Headingless chapter body.</p></section></body></html>"#,
+        )],
+    );
+}
+
+pub(super) fn write_epub3_with_tokenized_navigation(path: &Path) {
+    write_minimal_epub3(
+        path,
+        br#"<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="custom:foo toc"><ol><li><a id="image-chapter" href="chapter.xhtml#chapter"><img alt="Image Chapter" src="label.png"/></a></li></ol></nav><nav epub:type="custom:foo page-list"><ol><li><a href="chapter.xhtml#page"><img alt="42" src="page.png"/></a></li></ol></nav></body></html>"#,
+        &[(
+            "chapter.xhtml",
+            br#"<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><h1 id="chapter">Derived Name</h1><span id="page" epub:type="pagebreak"/><p>Tokenized navigation body.</p></body></html>"#,
+        )],
+    );
+}
+
 fn write_structured_epub3_with_navigation(path: &Path, navigation: &[u8]) {
     write_structured_epub3_with_navigation_path(path, navigation, "nav.xhtml");
 }
@@ -231,13 +253,15 @@ fn write_entry(zip: &mut zip::ZipWriter<File>, path: &str, bytes: &[u8], options
 
 fn package(nav_path: &str) -> String {
     format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
+        r##"<?xml version="1.0" encoding="UTF-8"?>
 <package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="book-id">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:identifier id="book-id">urn:uuid:structured-fixture</dc:identifier>
     <dc:title>Navigation by Design</dc:title>
     <dc:creator>Ada Reader</dc:creator>
     <dc:creator>Grace Listener</dc:creator>
+    <dc:creator id="illustrator">Ivy Artist</dc:creator>
+    <meta refines="#illustrator" property="role" scheme="marc:relators">ill</meta>
     <dc:language>en-US</dc:language>
     <meta property="dcterms:modified">2026-08-10T00:00:00Z</meta>
   </metadata>
@@ -253,7 +277,7 @@ fn package(nav_path: &str) -> String {
     <itemref idref="chapter-1"/>
     <itemref idref="chapter-2"/>
   </spine>
-</package>"#
+</package>"##
     )
 }
 
@@ -324,7 +348,7 @@ fn file_only_navigation() -> &'static [u8] {
 <head><title>Contents</title></head><body>
   <nav epub:type="toc" id="toc"><h1>Contents</h1><ol>
     <li><a id="toc-part" epub:type="part" href="part.xhtml">Part One</a><ol>
-      <li><a id="toc-chapter-one" epub:type="chapter" href="chapter-1.xhtml">Chapter One</a><ol>
+      <li><a id="toc-chapter-one" epub:type="chapter" href="chapter-1.xhtml#">Chapter One</a><ol>
         <li><a id="toc-why" epub:type="section" href="chapter-1.xhtml#caf%C3%A9">Why It Matters</a></li>
       </ol></li>
       <li><a id="toc-chapter-two" epub:type="chapter" href="chapter-2.xhtml">Chapter Two</a></li>

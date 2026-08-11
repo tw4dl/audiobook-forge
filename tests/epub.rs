@@ -9,10 +9,11 @@ mod utf16_epub;
 use structured_epub::{
     COVER_BYTES, chapter_two_page_9_character_offset, write_epub3_with_deep_navigation,
     write_epub3_with_disguised_deep_navigation, write_epub3_with_file_only_toc_target,
-    write_epub3_with_interleaved_toc_groups, write_epub3_with_invalid_toc_target,
-    write_epub3_with_inverted_parent_child_toc, write_epub3_with_malformed_navigation,
-    write_epub3_with_malformed_navigation_and_tail, write_epub3_with_prose_before_targeted_heading,
-    write_epub3_with_reversed_same_document_toc, write_epub3_with_reversed_toc,
+    write_epub3_with_headingless_semantic_container, write_epub3_with_interleaved_toc_groups,
+    write_epub3_with_invalid_toc_target, write_epub3_with_inverted_parent_child_toc,
+    write_epub3_with_malformed_navigation, write_epub3_with_malformed_navigation_and_tail,
+    write_epub3_with_prose_before_targeted_heading, write_epub3_with_reversed_same_document_toc,
+    write_epub3_with_reversed_toc, write_epub3_with_tokenized_navigation,
     write_epub3_with_unlisted_headingless_tail, write_structured_epub2, write_structured_epub3,
     write_structured_epub3_with_container_target, write_structured_epub3_without_page_list,
 };
@@ -335,6 +336,38 @@ fn toc_container_targets_merge_their_first_descendant_heading() {
     assert_eq!(book.text.matches("The Beginning").count(), 1);
     assert!(book.text.contains("Chapter body."));
     assert_eq!(book.root.children[0].kind, SectionKind::Chapter);
+}
+
+#[test]
+fn preserves_a_headingless_authored_semantic_container() {
+    let temp = tempdir().expect("temp dir");
+    let path = temp.path().join("headingless-semantic-container.epub");
+    write_epub3_with_headingless_semantic_container(&path);
+
+    let book = read_book(&path).expect("headingless semantic container");
+    let chapter = &book.root.children[0];
+
+    assert_eq!(chapter.kind, SectionKind::Chapter);
+    assert!(matches!(
+        chapter.blocks.as_slice(),
+        [Block::Paragraph(block)] if block.text == "Headingless chapter body."
+    ));
+}
+
+#[test]
+fn reads_tokenized_navigation_and_image_alternative_labels() {
+    let temp = tempdir().expect("temp dir");
+    let path = temp.path().join("tokenized-navigation.epub");
+    write_epub3_with_tokenized_navigation(&path);
+
+    let book = read_book(&path).expect("tokenized navigation");
+
+    assert_eq!(
+        book.root.children[0].title.as_deref(),
+        Some("Image Chapter")
+    );
+    assert_eq!(book.pages.len(), 1);
+    assert_eq!(book.pages[0].label, "42");
 }
 
 #[test]

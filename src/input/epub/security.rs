@@ -89,14 +89,18 @@ pub(super) fn validate_archive(bytes: &[u8], path: &Path) -> Result<()> {
         }
 
         if is_encryption_manifest {
-            let references = font_obfuscation_references(&expanded_bytes)?;
+            let markup = markup_as_utf8(&expanded_bytes, &entry_name)?;
+            let references = font_obfuscation_references(markup.as_ref())?;
             if font_references.len().saturating_add(references.len()) > MAX_EPUB_ENTRIES {
                 bail!("EPUB encryption manifest contains too many resources");
             }
             font_references.extend(references);
         }
-        if is_container_document && container_document.replace(expanded_bytes).is_some() {
-            bail!("EPUB contains duplicate container metadata");
+        if is_container_document {
+            let markup = markup_as_utf8(&expanded_bytes, &entry_name)?.into_owned();
+            if container_document.replace(markup).is_some() {
+                bail!("EPUB contains duplicate container metadata");
+            }
         }
     }
 
@@ -149,7 +153,7 @@ fn validate_markup_depth(markup: &[u8], entry_name: &str) -> Result<()> {
     }
 }
 
-fn markup_as_utf8<'a>(markup: &'a [u8], entry_name: &str) -> Result<Cow<'a, [u8]>> {
+pub(super) fn markup_as_utf8<'a>(markup: &'a [u8], entry_name: &str) -> Result<Cow<'a, [u8]>> {
     let (little_endian, body) = if let Some(body) = markup.strip_prefix(b"\xff\xfe") {
         (true, body)
     } else if let Some(body) = markup.strip_prefix(b"\xfe\xff") {

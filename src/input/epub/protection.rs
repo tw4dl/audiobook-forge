@@ -8,10 +8,12 @@ use quick_xml::reader::NsReader;
 use zip8::ZipArchive;
 
 mod media;
-mod path;
+pub(super) mod path;
 
 use media::{is_font_core_media_type, is_font_obfuscation_algorithm};
 use path::{ManifestLocation, normalize_archive_path, normalize_manifest_location};
+
+use super::security::markup_as_utf8;
 
 const MAX_MANIFEST_RESOURCES: usize = 10_000;
 const MAX_PACKAGE_BYTES: u64 = 32 * 1_024 * 1_024;
@@ -204,7 +206,8 @@ pub(super) fn validate_font_references<R: Read + Seek>(
             bail!("Unsupported encrypted/DRM-protected input.");
         }
         let package = read_archive_entry(archive, &package_path)?;
-        collect_manifest_resources(&package, &package_path, &mut manifest_resources)?;
+        let package = markup_as_utf8(&package, &package_path)?;
+        collect_manifest_resources(package.as_ref(), &package_path, &mut manifest_resources)?;
     }
 
     for reference in references {

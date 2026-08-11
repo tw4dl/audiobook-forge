@@ -1,4 +1,5 @@
 mod dom;
+mod navigation;
 mod semantics;
 mod xhtml;
 
@@ -12,6 +13,9 @@ use crate::book::{
 };
 
 use self::dom::{Element, Node, standardize_html, tokenize, tokenize_xhtml, validate_input_bounds};
+pub(super) use self::navigation::{
+    ParsedEpubNavigation, ParsedNavigationEntry, parse_epub_navigation,
+};
 use self::semantics::{
     element_section_kind, epub_anchors, epub_heading_aliases, epub_page_markers, is_note_element,
 };
@@ -181,6 +185,48 @@ impl StructureBuilder {
         self.next_section_id += 1;
     }
 
+    fn push_semantic_container(&mut self, element: &Element, kind: SectionKind) {
+        let fragment = attribute(element, "id");
+        let id = self.next_id(fragment);
+        let level = self
+            .stack
+            .last()
+            .map_or(1, |section| section.level.saturating_add(1));
+        let mut nested = Self::new("", self.resource.as_deref());
+        nested.next_section_id = self.next_section_id;
+        consume_nodes(&element.children, &mut nested);
+        self.next_section_id = nested.next_section_id;
+        let nested = nested.finish();
+
+        let mut section = Section::new(id, kind, None, level, Provenance::Authored);
+        section.source_range = self
+            .resource
+            .as_deref()
+            .map(|resource| epub_source_range_at(resource, fragment, element.source_offset));
+        section.blocks = nested.blocks;
+        section.children = nested.children;
+        relevel_sections(&mut section.children, level.saturating_add(1));
+        if let Some(parent) = self.stack.last_mut() {
+            parent.children.push(section);
+        } else {
+            self.root.children.push(section);
+        }
+    }
+
+    fn next_id(&mut self, fragment: Option<&str>) -> String {
+        let id = self.resource.as_ref().map_or_else(
+            || format!("section-{}", self.next_section_id),
+            |resource| {
+                fragment.map_or_else(
+                    || format!("epub:{resource}:section-{}", self.next_section_id),
+                    |fragment| format!("epub:{resource}#{fragment}"),
+                )
+            },
+        );
+        self.next_section_id += 1;
+        id
+    }
+
     fn push_block(&mut self, block: Block) {
         self.push_block_at_source(block, None, None);
     }
@@ -270,6 +316,10 @@ fn is_structural_node(node: &Node) -> bool {
             | "div"
             | "header"
             | "footer"
+            | "svg"
+            | "g"
+            | "text"
+            | "title"
             | "h1"
             | "h2"
             | "h3"
@@ -298,14 +348,13 @@ fn consume_structural_node(
     };
     match element.name.as_str() {
         "html" | "body" | "main" | "article" | "section" | "div" | "header" | "footer" => {
-            if let Some(kind) =
-                element_section_kind(element).filter(|kind| *kind != SectionKind::BodyMatter)
-            {
-                consume_nodes_with_kind(&element.children, builder, &mut Some(kind));
+            if let Some(kind) = element_section_kind(element) {
+                builder.push_semantic_container(element, kind);
             } else {
                 consume_nodes_with_kind(&element.children, builder, inherited_kind);
             }
         }
+        "svg" | "g" => consume_nodes_with_kind(&element.children, builder, inherited_kind),
         "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
             let title = node_text(node);
             if !title.is_empty() {
@@ -321,14 +370,21 @@ fn consume_structural_node(
             }
         }
         _ if is_note_element(element) => push_text_block(node, builder, Block::Footnote),
-        "p" | "pre" => push_text_block(node, builder, Block::Paragraph),
+        "p" | "pre" | "text" => push_text_block(node, builder, Block::Paragraph),
         "blockquote" => push_text_block(node, builder, Block::Quote),
         "aside" => push_text_block(node, builder, Block::Aside),
         "nav" => push_text_block(node, builder, Block::Navigation),
         "ol" | "ul" => push_list(element, builder),
         "figure" => push_figure(element, builder),
-        "hr" => {}
+        "hr" | "title" => {}
         _ => consume_nodes_with_kind(&element.children, builder, inherited_kind),
+    }
+}
+
+fn relevel_sections(sections: &mut [Section], level: u8) {
+    for section in sections {
+        section.level = level;
+        relevel_sections(&mut section.children, level.saturating_add(1));
     }
 }
 

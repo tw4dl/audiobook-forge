@@ -10,6 +10,7 @@ pub(super) fn read_metadata(epub: &Epub, fallback_title: &str) -> (BookMetadata,
         .unwrap_or_else(|| fallback_title.to_owned());
     let authors = source
         .creators()
+        .filter(is_author)
         .filter_map(|creator| nonempty(creator.value()))
         .collect();
     let language = source
@@ -25,6 +26,11 @@ pub(super) fn read_metadata(epub: &Epub, fallback_title: &str) -> (BookMetadata,
         },
         warnings,
     )
+}
+
+fn is_author(creator: &rbook::epub::metadata::EpubContributor<'_>) -> bool {
+    let mut roles = creator.roles().peekable();
+    roles.peek().is_none() || roles.any(|role| role.code().eq_ignore_ascii_case("aut"))
 }
 
 fn read_cover(epub: &Epub) -> (Option<BookAsset>, Vec<String>) {

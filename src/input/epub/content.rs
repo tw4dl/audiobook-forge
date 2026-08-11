@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use rbook::Epub;
+use rbook::epub::manifest::EpubManifestEntry;
 
 use crate::book::{PageMarker, Section};
 
@@ -25,12 +26,12 @@ pub(super) fn read_spine(epub: &Epub) -> Result<(Vec<SpineDocument>, Vec<String>
                 spine_entry.idref()
             )
         })?;
-        let manifest = if supported_content_type(primary.media_type()) {
+        let manifest = if supported_content(primary) {
             primary
         } else {
             let fallback = primary
                 .fallbacks()
-                .find(|entry| supported_content_type(entry.media_type()))
+                .find(|entry| supported_content(*entry))
                 .with_context(|| {
                     format!(
                         "EPUB spine resource {} ({}) has no supported XHTML, HTML, or SVG fallback",
@@ -65,9 +66,9 @@ pub(super) fn read_spine(epub: &Epub) -> Result<(Vec<SpineDocument>, Vec<String>
     Ok((documents, warnings))
 }
 
-fn supported_content_type(media_type: &str) -> bool {
+fn supported_content(entry: EpubManifestEntry<'_>) -> bool {
     matches!(
-        media_type,
+        entry.media_type(),
         "application/xhtml+xml" | "text/html" | "image/svg+xml"
-    )
+    ) && !entry.properties().has_property("scripted")
 }

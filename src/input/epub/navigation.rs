@@ -5,8 +5,10 @@ use rbook::epub::toc::EpubTocEntry;
 
 use crate::book::{PageMarker, Provenance, Section, SectionKind, SourcePosition, SourceRange};
 
+use super::super::html::{ParsedEpubNavigation, ParsedNavigationEntry, parse_epub_navigation};
 use super::super::{epub_source_position, epub_source_range, heading_kind, semantic_section_kind};
 use super::content::SpineDocument;
+use super::protection::path::normalize_archive_path;
 
 mod merge;
 mod ordering;
@@ -52,12 +54,38 @@ pub(super) fn build_navigation(
         .iter()
         .flat_map(|document| document.pages.iter().cloned())
         .collect::<Vec<_>>();
+    let raw_navigation = read_raw_navigation(epub, &mut warnings);
     let contents = epub
         .toc()
         .contents()
         .filter(|contents| !contents.is_empty());
+    let use_raw_contents = raw_navigation
+        .as_ref()
+        .is_some_and(|navigation| !navigation.contents.is_empty())
+        && contents.is_none_or(|contents| !rbook_navigation_has_labels(contents));
 
-    if let Some(contents) =
+    if use_raw_contents {
+        let navigation = raw_navigation
+            .as_ref()
+            .expect("raw navigation was checked before use");
+        let mut next_id = 1_usize;
+        let mut used_ids = HashSet::new();
+        for entry in &navigation.contents {
+            root.children.extend(raw_toc_sections(
+                entry,
+                &navigation.resource,
+                1,
+                &mut next_id,
+                &mut used_ids,
+                &spine_index,
+                &mut warnings,
+            ));
+        }
+        for document in documents {
+            merge::merge_document(&mut root, document);
+        }
+        ordering::order_sections(&mut root, &spine_index.order, &spine_index.anchors);
+    } else if let Some(contents) =
         contents.filter(|contents| navigation_within_bounds(*contents, &mut warnings))
     {
         let mut next_id = 1_usize;
@@ -91,10 +119,56 @@ pub(super) fn build_navigation(
     }
 
     let mut pages = page_markers(epub, &spine_index, &mut warnings);
+    if pages.is_empty()
+        && let Some(navigation) = raw_navigation.as_ref()
+    {
+        pages = raw_page_markers(navigation, &spine_index, &mut warnings);
+    }
     if pages.is_empty() {
         pages = spine_pages;
     }
     (root, pages, warnings)
+}
+
+fn read_raw_navigation(epub: &Epub, warnings: &mut Vec<String>) -> Option<ParsedEpubNavigation> {
+    let entry = epub.manifest().by_property("nav").next()?;
+    let resource = entry.href().path().decode().into_owned();
+    let source = match entry.read_str() {
+        Ok(source) => source,
+        Err(error) => {
+            warnings.push(format!(
+                "EPUB navigation {resource} could not be read for standards fallback: {error}"
+            ));
+            return None;
+        }
+    };
+    match parse_epub_navigation(&source, &resource) {
+        Ok(mut navigation) => {
+            warnings.append(&mut navigation.warnings);
+            Some(navigation)
+        }
+        Err(error) => {
+            warnings.push(format!(
+                "EPUB navigation {resource} could not be parsed for standards fallback: {error}"
+            ));
+            None
+        }
+    }
+}
+
+fn rbook_navigation_has_labels(contents: EpubTocEntry<'_>) -> bool {
+    let mut saw_entry = false;
+    for entry in contents {
+        saw_entry = true;
+        if !entry_and_descendants_have_labels(entry) {
+            return false;
+        }
+    }
+    saw_entry
+}
+
+fn entry_and_descendants_have_labels(entry: EpubTocEntry<'_>) -> bool {
+    !entry.label().trim().is_empty() && entry.into_iter().all(entry_and_descendants_have_labels)
 }
 
 fn navigation_within_bounds(contents: EpubTocEntry<'_>, warnings: &mut Vec<String>) -> bool {
@@ -169,6 +243,97 @@ fn toc_sections(
     vec![section]
 }
 
+#[allow(clippy::too_many_arguments)]
+fn raw_toc_sections(
+    entry: &ParsedNavigationEntry,
+    navigation_resource: &str,
+    level: u8,
+    next_id: &mut usize,
+    used_ids: &mut HashSet<String>,
+    spine_index: &SpineIndex,
+    warnings: &mut Vec<String>,
+) -> Vec<Section> {
+    let label = entry.label.trim();
+    if label.is_empty() {
+        warnings.push("EPUB navigation entry has an empty label; skipped".to_owned());
+        return promote_raw_children(
+            entry,
+            navigation_resource,
+            level,
+            next_id,
+            used_ids,
+            spine_index,
+            warnings,
+        );
+    }
+    let target = match resolved_raw_target(entry, navigation_resource, spine_index) {
+        Ok(target) => target,
+        Err(issue) => {
+            warnings.push(format!(
+                "EPUB navigation entry {label:?} {}; skipped",
+                issue.description()
+            ));
+            return promote_raw_children(
+                entry,
+                navigation_resource,
+                level,
+                next_id,
+                used_ids,
+                spine_index,
+                warnings,
+            );
+        }
+    };
+    let id = unique_id(entry.id.as_deref(), next_id, used_ids);
+    let mut section = Section::new(
+        id,
+        section_kind(entry.kind.as_deref().unwrap_or_default(), label),
+        Some(label.to_owned()),
+        level,
+        Provenance::Authored,
+    );
+    section.source_range = target.map(|target| target.source_range());
+    for child in &entry.children {
+        section.children.extend(raw_toc_sections(
+            child,
+            navigation_resource,
+            level.saturating_add(1),
+            next_id,
+            used_ids,
+            spine_index,
+            warnings,
+        ));
+    }
+    vec![section]
+}
+
+#[allow(clippy::too_many_arguments)]
+fn promote_raw_children(
+    entry: &ParsedNavigationEntry,
+    navigation_resource: &str,
+    level: u8,
+    next_id: &mut usize,
+    used_ids: &mut HashSet<String>,
+    spine_index: &SpineIndex,
+    warnings: &mut Vec<String>,
+) -> Vec<Section> {
+    entry
+        .children
+        .iter()
+        .flat_map(|child| {
+            raw_toc_sections(
+                child,
+                navigation_resource,
+                level,
+                next_id,
+                used_ids,
+                spine_index,
+                warnings,
+            )
+        })
+        .collect()
+}
+
 fn unique_id(
     authored: Option<&str>,
     next_id: &mut usize,
@@ -241,7 +406,55 @@ fn resolved_target(
     if !spine_index.order.contains_key(&resource) {
         return Err(TargetIssue::OutsideSpine);
     }
-    let fragment = href.fragment().map(percent_decode);
+    let fragment = href
+        .fragment()
+        .map(percent_decode)
+        .filter(|fragment| !fragment.is_empty());
+    if let Some(fragment) = fragment.as_deref()
+        && !spine_index
+            .anchors
+            .get(&resource)
+            .is_some_and(|anchors| anchors.contains_key(fragment))
+    {
+        return Err(TargetIssue::MissingFragment(fragment.to_owned()));
+    }
+    Ok(Some(ResolvedTarget { resource, fragment }))
+}
+
+fn resolved_raw_target(
+    entry: &ParsedNavigationEntry,
+    navigation_resource: &str,
+    spine_index: &SpineIndex,
+) -> Result<Option<ResolvedTarget>, TargetIssue> {
+    let Some(href) = entry.href.as_deref() else {
+        return Ok(None);
+    };
+    let (path, fragment) = href
+        .split_once('#')
+        .map_or((href, None), |(path, fragment)| (path, Some(fragment)));
+    let path = path.split_once('?').map_or(path, |(path, _)| path);
+    let resource = if path.is_empty() {
+        navigation_resource.to_owned()
+    } else {
+        let absolute = path.starts_with('/');
+        let path = path.strip_prefix('/').unwrap_or(path);
+        let base = (!absolute)
+            .then(|| {
+                navigation_resource
+                    .trim_start_matches('/')
+                    .rsplit_once('/')
+                    .map(|(parent, _)| parent)
+            })
+            .flatten();
+        let normalized = normalize_archive_path(base, path).ok_or(TargetIssue::MissingResource)?;
+        format!("/{normalized}")
+    };
+    if !spine_index.order.contains_key(&resource) {
+        return Err(TargetIssue::OutsideSpine);
+    }
+    let fragment = fragment
+        .map(percent_decode)
+        .filter(|fragment| !fragment.is_empty());
     if let Some(fragment) = fragment.as_deref()
         && !spine_index
             .anchors
@@ -275,6 +488,43 @@ fn page_markers(
             continue;
         }
         match resolved_target(entry, spine_index) {
+            Ok(Some(target)) => pages.push(PageMarker {
+                label: label.to_owned(),
+                position: target.source_position(),
+            }),
+            Ok(None) => warnings.push(format!(
+                "EPUB page {label:?} has no source location; skipped"
+            )),
+            Err(issue) => warnings.push(format!(
+                "EPUB page {label:?} {}; skipped",
+                issue.description()
+            )),
+        }
+    }
+    pages
+}
+
+fn raw_page_markers(
+    navigation: &ParsedEpubNavigation,
+    spine_index: &SpineIndex,
+    warnings: &mut Vec<String>,
+) -> Vec<PageMarker> {
+    let mut pages = Vec::new();
+    let mut stack = navigation.pages.iter().rev().collect::<Vec<_>>();
+    while let Some(entry) = stack.pop() {
+        if pages.len() >= MAX_NAVIGATION_ENTRIES {
+            warnings.push(format!(
+                "EPUB page list has more than {MAX_NAVIGATION_ENTRIES} entries; ignored"
+            ));
+            return Vec::new();
+        }
+        stack.extend(entry.children.iter().rev());
+        let label = entry.label.trim();
+        if label.is_empty() {
+            warnings.push("EPUB page list contains an empty label; skipped".to_owned());
+            continue;
+        }
+        match resolved_raw_target(entry, &navigation.resource, spine_index) {
             Ok(Some(target)) => pages.push(PageMarker {
                 label: label.to_owned(),
                 position: target.source_position(),

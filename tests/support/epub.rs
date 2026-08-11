@@ -51,6 +51,18 @@ pub(super) fn write_epub_fixture_with_font_obfuscation(path: &Path) {
     );
 }
 
+pub(super) fn write_epub_fixture_with_utf16_font_obfuscation(path: &Path) {
+    write_epub_fixture_inner(
+        path,
+        EpubFixtureOptions {
+            encryption_algorithm: Some("http://www.idpf.org/2008/embedding"),
+            encryption_reference: Some("OEBPS/font.otf"),
+            utf16_markup: true,
+            ..EpubFixtureOptions::default()
+        },
+    );
+}
+
 pub(super) fn write_epub_fixture_with_font_algorithm_for_non_font(path: &Path) {
     write_epub_fixture_inner(
         path,
@@ -140,6 +152,7 @@ struct EpubFixtureOptions<'a> {
     unsafe_name: Option<&'a str>,
     encryption_algorithm: Option<&'a str>,
     encryption_reference: Option<&'a str>,
+    utf16_markup: bool,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -181,7 +194,8 @@ fn write_epub_fixture_inner(path: &Path, options: EpubFixtureOptions<'_>) {
   <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>{additional_rootfile}</rootfiles>
 </container>"#
     );
-    zip.write_all(container.as_bytes()).expect("container");
+    zip.write_all(&encoded_markup(&container, options.utf16_markup))
+        .expect("container");
 
     write_package_documents(&mut zip, options);
 
@@ -224,7 +238,7 @@ fn write_epub_fixture_inner(path: &Path, options: EpubFixtureOptions<'_>) {
   </enc:EncryptedData>
 </encryption>"#
         );
-        zip.write_all(manifest.as_bytes())
+        zip.write_all(&encoded_markup(&manifest, options.utf16_markup))
             .expect("encryption manifest bytes");
     }
     zip.finish().expect("finish epub");
@@ -254,7 +268,8 @@ fn write_package_documents(zip: &mut zip::ZipWriter<File>, options: EpubFixtureO
   <spine><itemref idref="one"/><itemref idref="two"/></spine>
 </package>"#
     );
-    zip.write_all(package.as_bytes()).expect("package");
+    zip.write_all(&encoded_markup(&package, options.utf16_markup))
+        .expect("package");
 
     if options.variant == EpubFixtureVariant::CrossPackageFontRelabel {
         zip.start_file("ALT/content.opf", deflated)
@@ -289,6 +304,21 @@ fn remote_manifest_items(variant: EpubFixtureVariant) -> String {
         .expect("remote manifest item");
     }
     items
+}
+
+fn encoded_markup(source: &str, utf16: bool) -> Vec<u8> {
+    if !utf16 {
+        return source.as_bytes().to_vec();
+    }
+    let source = source
+        .replace("encoding=\"UTF-8\"", "encoding=\"UTF-16\"")
+        .replace(
+            "<?xml version=\"1.0\"?>",
+            "<?xml version=\"1.0\" encoding=\"UTF-16\"?>",
+        );
+    let mut bytes = vec![0xff, 0xfe];
+    bytes.extend(source.encode_utf16().flat_map(u16::to_le_bytes));
+    bytes
 }
 
 pub(super) fn patch_eocd_entry_count(path: &Path, count: u16) {

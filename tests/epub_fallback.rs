@@ -30,6 +30,50 @@ fn follows_a_foreign_spine_items_xhtml_fallback() {
     ));
 }
 
+#[test]
+fn follows_an_xhtml_spine_items_unscripted_fallback() {
+    let temp = tempdir().expect("temp dir");
+    let path = temp.path().join("scripted-fallback.epub");
+    write_scripted_fallback_epub(&path);
+
+    let book = read_book(&path).expect("EPUB scripted-resource fallback");
+
+    assert!(book.text.contains("Static fallback body."));
+    assert!(!book.text.contains("Script-only placeholder."));
+    assert!(book.warnings.iter().any(|warning| {
+        warning.contains("scripted.xhtml")
+            && warning.contains("static.xhtml")
+            && warning.contains("fallback")
+    }));
+}
+
+#[test]
+fn imports_svg_spine_text_as_separate_source_mapped_blocks() {
+    let temp = tempdir().expect("temp dir");
+    let path = temp.path().join("svg-spine.epub");
+    write_svg_spine_epub(&path);
+
+    let book = read_book(&path).expect("EPUB SVG spine resource");
+
+    let section = &book.root.children[0];
+    assert_eq!(section.blocks.len(), 2);
+    assert_eq!(book.text.matches("First line").count(), 1);
+    assert_eq!(book.text.matches("Second line").count(), 1);
+    let fragments = section
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            kokoro_book::book::Block::Paragraph(block) => block.source_range.as_ref(),
+            _ => None,
+        })
+        .filter_map(|range| match &range.start {
+            SourcePosition::Epub { fragment, .. } => fragment.as_deref(),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(fragments, ["line-one", "line-two"]);
+}
+
 fn write_fallback_epub(path: &Path) {
     let file = File::create(path).expect("EPUB fixture");
     let mut zip = zip::ZipWriter::new(file);
@@ -66,6 +110,67 @@ fn write_fallback_epub(path: &Path) {
         br#"<html xmlns="http://www.w3.org/1999/xhtml"><body><h1 id="chapter">Fallback Chapter</h1><p>Fallback chapter body.</p></body></html>"#,
         deflated,
     );
+    zip.finish().expect("finish EPUB fixture");
+}
+
+fn write_scripted_fallback_epub(path: &Path) {
+    write_content_epub(
+        path,
+        r#"<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="scripted" href="scripted.xhtml" media-type="application/xhtml+xml" properties="scripted" fallback="static"/><item id="static" href="static.xhtml" media-type="application/xhtml+xml"/>"#,
+        "scripted",
+        br#"<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc"><ol><li><a href="static.xhtml#chapter">Static Chapter</a></li></ol></nav></body></html>"#,
+        &[
+            (
+                "EPUB/scripted.xhtml",
+                br#"<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Script-only placeholder.</p><script>document.body.textContent='Dynamic';</script></body></html>"#,
+            ),
+            (
+                "EPUB/static.xhtml",
+                br#"<html xmlns="http://www.w3.org/1999/xhtml"><body><h1 id="chapter">Static Chapter</h1><p>Static fallback body.</p></body></html>"#,
+            ),
+        ],
+    );
+}
+
+fn write_svg_spine_epub(path: &Path) {
+    write_content_epub(
+        path,
+        r#"<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="svg" href="page.svg" media-type="image/svg+xml"/>"#,
+        "svg",
+        br#"<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc"><ol><li><a href="page.svg">SVG Page</a></li></ol></nav></body></html>"#,
+        &[(
+            "EPUB/page.svg",
+            br#"<svg xmlns="http://www.w3.org/2000/svg"><title>SVG Page</title><text id="line-one">First <tspan>line</tspan></text><text id="line-two">Second line</text></svg>"#,
+        )],
+    );
+}
+
+fn write_content_epub(
+    path: &Path,
+    manifest: &str,
+    spine_id: &str,
+    navigation: &[u8],
+    resources: &[(&str, &[u8])],
+) {
+    let file = File::create(path).expect("EPUB fixture");
+    let mut zip = zip::ZipWriter::new(file);
+    let stored = FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    let deflated = FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    write_entry(&mut zip, "mimetype", b"application/epub+zip", stored);
+    write_entry(
+        &mut zip,
+        "META-INF/container.xml",
+        br#"<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="EPUB/package.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#,
+        deflated,
+    );
+    let package = format!(
+        r#"<?xml version="1.0"?><package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">urn:uuid:content</dc:identifier><dc:title>Content Book</dc:title><dc:language>en</dc:language><meta property="dcterms:modified">2026-08-10T00:00:00Z</meta></metadata><manifest>{manifest}</manifest><spine><itemref idref="{spine_id}"/></spine></package>"#
+    );
+    write_entry(&mut zip, "EPUB/package.opf", package.as_bytes(), deflated);
+    write_entry(&mut zip, "EPUB/nav.xhtml", navigation, deflated);
+    for (resource_path, bytes) in resources {
+        write_entry(&mut zip, resource_path, bytes, deflated);
+    }
     zip.finish().expect("finish EPUB fixture");
 }
 

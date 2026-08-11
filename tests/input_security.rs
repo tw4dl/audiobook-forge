@@ -15,6 +15,7 @@ use epub_fixture::{
     write_epub_fixture_with_foreign_font_item, write_epub_fixture_with_large_entry,
     write_epub_fixture_with_many_remote_manifest_items,
     write_epub_fixture_with_remote_manifest_item, write_epub_fixture_with_unsafe_path,
+    write_epub_fixture_with_utf16_font_obfuscation,
 };
 
 #[test]
@@ -245,6 +246,17 @@ fn permits_standard_epub_font_obfuscation_manifest() {
     write_epub_fixture_with_font_obfuscation(&path);
 
     let book = read_book(&path).expect("font obfuscation is not DRM");
+
+    assert!(book.text.contains("Chapter One"));
+}
+
+#[test]
+fn permits_utf16_epub_font_obfuscation_metadata() {
+    let temp = tempdir().expect("temp dir");
+    let path = temp.path().join("utf16-font-obfuscation.epub");
+    write_epub_fixture_with_utf16_font_obfuscation(&path);
+
+    let book = read_book(&path).expect("UTF-16 font obfuscation is not DRM");
 
     assert!(book.text.contains("Chapter One"));
 }
