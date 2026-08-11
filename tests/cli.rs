@@ -6,6 +6,10 @@ use tempfile::tempdir;
 #[path = "support/structured_epub.rs"]
 mod structured_epub;
 
+#[allow(dead_code)]
+#[path = "support/pdf_fixture.rs"]
+mod pdf_fixture;
+
 #[test]
 fn help_describes_conversion_and_inspection() {
     Command::cargo_bin("kokoro-book")
@@ -13,7 +17,9 @@ fn help_describes_conversion_and_inspection() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("EPUB, HTML, Markdown, or TXT"))
+        .stdout(predicate::str::contains(
+            "EPUB, text-based PDF, HTML, Markdown, or TXT",
+        ))
         .stdout(predicate::str::contains("inspect"))
         .stdout(predicate::str::contains("--voice"))
         .stdout(predicate::str::contains("--pronunciation"))
@@ -79,6 +85,32 @@ fn inspect_epub_reports_book_metadata_and_navigation_counts() {
             "Cover: /EPUB/cover.jpg (image/jpeg)",
         ))
         .stdout(predicate::str::contains("Pages: 2"));
+}
+
+#[test]
+fn inspect_pdf_reports_metadata_pages_and_bookmarks_without_loading_a_model() {
+    let temp = tempdir().expect("temp dir");
+    let input = temp.path().join("bookmarked.pdf");
+    let cache = temp.path().join("cache");
+    pdf_fixture::write_pdf_with_bookmarks(&input);
+
+    Command::cargo_bin("kokoro-book")
+        .expect("binary")
+        .arg("inspect")
+        .arg(&input)
+        .arg("--tree")
+        .env("KOKORO_BOOK_CACHE_DIR", &cache)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Title: Public Domain Sample"))
+        .stdout(predicate::str::contains("Format: PDF 1.7"))
+        .stdout(predicate::str::contains("Author: Example Author"))
+        .stdout(predicate::str::contains("Pages: 3"))
+        .stdout(predicate::str::contains(
+            "Public Domain Sample\n  Chapter One\n    A Closer Look\n  Chapter Two",
+        ));
+
+    assert!(!cache.exists());
 }
 
 #[test]
@@ -243,9 +275,7 @@ fn invalid_input_fails_before_any_download() {
         .env("KOKORO_BOOK_CACHE_DIR", temp.path().join("cache"))
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "supported input types: .epub, .html, .md, and .txt",
-        ));
+        .stderr(predicate::str::contains("failed to parse PDF"));
 
     assert!(!temp.path().join("cache").exists());
 }

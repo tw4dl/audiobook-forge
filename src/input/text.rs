@@ -142,7 +142,7 @@ fn finish_book(path: &Path, title: String, mut root: Section) -> CanonicalBook {
     }
 }
 
-fn text_heading(line: &str) -> Option<(SectionKind, String)> {
+pub(super) fn text_heading(line: &str) -> Option<(SectionKind, String)> {
     if line.chars().count() > 120 {
         return None;
     }

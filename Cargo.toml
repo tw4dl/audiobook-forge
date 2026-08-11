@@ -20,6 +20,7 @@ hound = "3.5.1"
 html5ever = "0.39.0"
 html2text = "0.17.1"
 indicatif = "0.18.3"
+lopdf = { version = "0.44.0", default-features = false }
 misaki-rs = { version = "0.3.0", default-features = false }
 pulldown-cmark = { version = "0.13.4", default-features = false }
 quick-xml = "0.41.0"

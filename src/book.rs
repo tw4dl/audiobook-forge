@@ -50,6 +50,7 @@ pub enum SourceFormat {
     Epub,
     Html,
     Markdown,
+    Pdf,
     Text,
 }
 
@@ -59,6 +60,7 @@ impl fmt::Display for SourceFormat {
             Self::Epub => formatter.write_str("EPUB"),
             Self::Html => formatter.write_str("HTML"),
             Self::Markdown => formatter.write_str("Markdown"),
+            Self::Pdf => formatter.write_str("PDF"),
             Self::Text => formatter.write_str("TXT"),
         }
     }

@@ -1,6 +1,6 @@
 # kokoro-book
 
-A small offline CLI that turns an English EPUB, HTML, Markdown, or UTF-8 TXT file into a WAV audiobook with [Kokoro-82M-bf16](https://huggingface.co/mlx-community/Kokoro-82M-bf16).
+A small offline CLI that turns an English EPUB, text-based PDF, HTML, Markdown, or UTF-8 TXT file into a WAV audiobook with [Kokoro-82M-bf16](https://huggingface.co/mlx-community/Kokoro-82M-bf16).
 
 One model. One MLX worker. Preset voices only. No Python, server, GUI, eSpeak, ONNX Runtime, or voice cloning.
 
@@ -25,6 +25,7 @@ The first conversion downloads one pinned 312 MiB BF16 Kokoro model and the sele
 ```sh
 kokoro-book book.epub
 kokoro-book inspect book.epub
+kokoro-book inspect reference.pdf --tree
 kokoro-book inspect notes.md --tree
 kokoro-book notes.txt --output notes.wav
 kokoro-book book.epub --voice af_sky --speed 1.1
@@ -33,9 +34,15 @@ kokoro-book voices
 
 The default output sits beside the input with a `.wav` extension. The audio format is mono, 16-bit PCM, 24 kHz. The default voice is `af_heart`. Run `kokoro-book voices` for the 28 English presets.
 
-`inspect` reports imported metadata and semantic sections without loading or downloading the TTS model. EPUB inspection includes the format version, author, language, cover, and authored page count when present. Explicit creator roles keep non-author contributors out of the author list. Use `--tree` to show the nested navigation structure. EPUB 3 navigation documents and EPUB 2 NCX files take priority over spine XHTML headings. EPUB 3 token lists and image alternative labels remain usable navigation. Page lists take priority over EPUB 3 `pagebreak` markers. The importer accepts UTF-8 and BOM-marked UTF-16 XML, follows manifest fallback chains around foreign or scripted resources, reads SVG text as source-mapped blocks, and preserves cover bytes, semantic containers, footnotes, source resources, source fragments, and spine order in `CanonicalBook`. Broken navigation links become warnings and do not hide readable spine content. HTML uses its `<title>` when present. TXT and Markdown infer the title from the filename. TXT chapter detection recognizes common `PART`, `BOOK`, and `CHAPTER` headings. Markdown and HTML heading levels map directly into the semantic tree.
+`inspect` reports imported metadata and semantic sections without loading or downloading the TTS model. EPUB inspection includes the format version, author, language, cover, and authored page count when present. Explicit creator roles keep non-author contributors out of the author list. Use `--tree` to show the nested navigation structure. EPUB 3 navigation documents and EPUB 2 NCX files take priority over spine XHTML headings. EPUB 3 token lists and image alternative labels remain usable navigation. Page lists take priority over EPUB 3 `pagebreak` markers. The importer accepts UTF-8 and BOM-marked UTF-16 XML, follows manifest fallback chains around foreign or scripted resources, reads SVG text as source-mapped blocks, and preserves cover bytes, semantic containers, footnotes, source resources, source fragments, and spine order in `CanonicalBook`. Broken navigation links become warnings and do not hide readable spine content.
 
-Raw TXT, Markdown, and HTML inputs are limited to 32 MiB. HTML preflight caps parser resource units at 100,000, total attributes at 4,096, and tree depth at 128. EPUB archives are limited to 512 MiB, 10,000 entries, 32 MiB per expanded entry, and 512 MiB total expanded content. EPUB preflight validates archive paths, declared entry counts, actual decompression, and `META-INF/encryption.xml` before book parsing. Protected resources fail with a clear error. Standard IDPF and Adobe font obfuscation remain supported. These checks run before book parsing or model setup.
+PDF inspection preserves title, author, PDF version, physical page number, and authored page label. Outline/bookmark hierarchy takes priority over deterministic `PART`, `BOOK`, and `CHAPTER` heading inference. A PDF with no usable outline reports the lower-confidence fallback before synthesis. Password-protected PDFs fail with a clear DRM-free-copy message. A PDF with no extractable text fails with a clear message that OCR is not supported. Tagged-PDF logical structure is not interpreted in V1.
+
+HTML uses its `<title>` when present. TXT and Markdown infer the title from the filename. TXT chapter detection recognizes common `PART`, `BOOK`, and `CHAPTER` headings. Markdown and HTML heading levels map directly into the semantic tree.
+
+Raw TXT, Markdown, and HTML inputs are limited to 32 MiB. HTML preflight caps parser resource units at 100,000, total attributes at 4,096, and tree depth at 128. EPUB archives are limited to 512 MiB, 10,000 entries, 32 MiB per expanded entry, and 512 MiB total expanded content. EPUB preflight validates archive paths, declared entry counts, actual decompression, and `META-INF/encryption.xml` before book parsing. Protected resources fail with a clear error. Standard IDPF and Adobe font obfuscation remain supported.
+
+PDF files are limited to 128 MiB, 200,000 parsed objects, 10,000 pages, 16 MiB per decompressed parser or page-text stream, 128 MiB total extracted text, 10,000 outline nodes, and 128 outline levels. Page trees, bookmark trees, named destinations, and page-label trees are checked for impossible counts, excessive depth, and reference cycles before recursive library outline processing. These checks run before model setup.
 
 ## Pronunciation overrides
 
@@ -53,7 +60,7 @@ Repeat `--pronunciation WORD=IPA` as needed. A regression test and a public-doma
 ## How it works
 
 ```text
-EPUB, HTML, Markdown, or TXT
+EPUB, text-based PDF, HTML, Markdown, or TXT
   -> format-specific import
   -> CanonicalBook
   -> semantic normalization
@@ -78,13 +85,13 @@ Set `KOKORO_BOOK_CACHE_DIR` to override it. Downloads come from one pinned Huggi
 
 ## Scope
 
-- Input: English `.epub`, `.html`/`.xhtml`, `.md`, and UTF-8 `.txt`
+- Input: English `.epub`, text-based `.pdf`, `.html`/`.xhtml`, `.md`, and UTF-8 `.txt`
 - Output: one `.wav`
 - Inference: native MLX through `mlx-rs`
 - Phonemes: lean `misaki-rs`
 - Voices: English Kokoro presets only
 
-Current limitations: conversion still emits WAV rather than M4B plus navigation sidecars. Footnote narration policy, PDF, Kindle formats, OCR, translation, MP3, a web UI, and voice cloning are not implemented yet. DRM removal is out of scope; unsupported encrypted resources fail before parsing or synthesis.
+Current limitations: conversion still emits WAV rather than M4B plus navigation sidecars. The new M4B, semantic narration, resumable segment cache, and sidecar modules are not wired into the public conversion command yet. Kindle formats, tagged-PDF logical structure, OCR, translation, MP3, a web UI, and voice cloning are not implemented yet. DRM removal is out of scope; unsupported encrypted resources fail before parsing or synthesis.
 
 ## Performance
 

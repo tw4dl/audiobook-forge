@@ -206,14 +206,14 @@ fn rejects_empty_text() {
 #[test]
 fn rejects_unsupported_input_types() {
     let temp = tempdir().expect("temp dir");
-    let path = temp.path().join("book.pdf");
-    std::fs::write(&path, b"not a pdf").expect("fixture");
+    let path = temp.path().join("book.docx");
+    std::fs::write(&path, b"not a docx").expect("fixture");
 
     let error = read_book(&path).expect_err("unsupported input must fail");
     assert!(
         error
             .to_string()
-            .contains("supported input types: .epub, .html, .md, and .txt")
+            .contains("supported input types: .epub, .pdf, .html, .md, and .txt")
     );
 }
 

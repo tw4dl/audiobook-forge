@@ -9,6 +9,7 @@ The optional native features that could add eSpeak are disabled:
 ```toml
 misaki-rs = { version = "0.3.0", default-features = false }
 rbook = { version = "0.7.10", default-features = false }
+lopdf = { version = "0.44.0", default-features = false }
 
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
 mlx-memory-control = { version = "0.1.0", path = "crates/mlx-memory-control" }
@@ -46,6 +47,7 @@ If either file changes, the clarification stops matching and the audit fails or 
 | `pulldown-cmark` 0.13.4 | CommonMark parsing and source offsets | MIT | [`pulldown-cmark/pulldown-cmark`](https://github.com/pulldown-cmark/pulldown-cmark) |
 | `quick-xml` 0.41.0 | EPUB encryption-manifest validation | MIT | [`tafia/quick-xml`](https://github.com/tafia/quick-xml) |
 | `zip` 8.6.0 | EPUB archive size and encryption preflight | MIT | [`zip-rs/zip2`](https://github.com/zip-rs/zip2) |
+| `lopdf` 0.44.0 | Bounded PDF parsing, text extraction, metadata, and outlines | MIT | [`J-F-Liu/lopdf`](https://github.com/J-F-Liu/lopdf) |
 | Original Misaki English lexicons and G2P data | Four embedded US/GB gold/silver dictionaries plus POS classes, tags, and weights carried by `misaki-rs` | Apache-2.0 | [`hexgrad/misaki`](https://github.com/hexgrad/misaki) |
 | `language-tokenizer` 0.1.0 | Transitive Misaki tokenization | WTFPL | [`savannstm/language-tokenizer`](https://github.com/savannstm/language-tokenizer/tree/86f2cbc67384d9913186c3ae0b3e862359349c31) |
 | `rbook` 0.7.10 | EPUB 2 and 3 reading | Apache-2.0 | [`DevinSterling/rbook`](https://github.com/DevinSterling/rbook) |

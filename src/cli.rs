@@ -26,7 +26,7 @@ use crate::worker::{WorkerLaunch, WorkerLimits, run_mlx_worker};
     long_about = None
 )]
 struct Cli {
-    /// EPUB, HTML, Markdown, or TXT input file
+    /// EPUB, text-based PDF, HTML, Markdown, or TXT input file
     #[arg(value_name = "INPUT")]
     input: Option<PathBuf>,
 
@@ -62,7 +62,7 @@ struct Cli {
 enum Command {
     /// Inspect the imported title and semantic structure without synthesis
     Inspect {
-        /// EPUB, HTML, Markdown, or TXT input file
+        /// EPUB, text-based PDF, HTML, Markdown, or TXT input file
         #[arg(value_name = "INPUT")]
         input: PathBuf,
 
