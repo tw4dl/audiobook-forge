@@ -53,6 +53,16 @@ pub struct M4bReport {
     pub chapters: Vec<M4bChapter>,
 }
 
+/// Confirm that the external AAC encoder and independent validator are ready.
+///
+/// # Errors
+///
+/// Returns an error when ffmpeg or ffprobe is missing or unusable.
+pub fn ensure_media_tools() -> Result<()> {
+    require_tool("ffmpeg")?;
+    require_tool("ffprobe")
+}
+
 /// Assemble cached PCM into one atomic AAC M4B and validate it with `ffprobe`.
 ///
 /// # Errors
@@ -65,8 +75,7 @@ pub fn assemble_m4b(
     output: &Path,
     policy: ChapterPolicy,
 ) -> Result<M4bReport> {
-    require_tool("ffmpeg")?;
-    require_tool("ffprobe")?;
+    ensure_media_tools()?;
     let parent = output.parent().unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent)
         .with_context(|| format!("failed to create output directory {}", parent.display()))?;

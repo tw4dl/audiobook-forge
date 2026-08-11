@@ -2,17 +2,24 @@
 
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use clap::error::ErrorKind;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::book::Section;
+use crate::build::{
+    AudiobookBuildOptions, AudiobookBuildReport, build_audiobook, validate_build_options,
+};
 use crate::input::read_book;
+use crate::m4b::{ChapterPolicy, ensure_media_tools};
 use crate::model::{default_cache_dir, ensure_model};
+use crate::narration::{FootnoteMode, NarrationPolicy, plan_narration};
 use crate::phoneme::Pronunciation;
+use crate::synthesis::{SegmentCache, SynthesisSettings};
 use crate::tts::{
-    DEFAULT_MAX_PHONEMES, SynthesisOptions, ensure_supported_platform, synthesize_to_wav,
+    DEFAULT_MAX_PHONEMES, KokoroProviderReport, KokoroTtsProvider, ensure_supported_platform,
     validate_settings,
 };
 use crate::voice::{DEFAULT_VOICE, ENGLISH_VOICES, Voice};
@@ -22,7 +29,7 @@ use crate::worker::{WorkerLaunch, WorkerLimits, run_mlx_worker};
 #[command(
     name = "kokoro-book",
     version,
-    about = "Turn an English ebook or document into a Kokoro audiobook",
+    about = "Turn an English ebook or document into a navigable M4B audiobook",
     long_about = None
 )]
 struct Cli {
@@ -30,8 +37,8 @@ struct Cli {
     #[arg(value_name = "INPUT")]
     input: Option<PathBuf>,
 
-    /// Output WAV path
-    #[arg(short, long, value_name = "FILE")]
+    /// Output directory; defaults to a folder beside the source
+    #[arg(short, long, value_name = "DIR")]
     output: Option<PathBuf>,
 
     /// Kokoro preset voice
@@ -46,6 +53,14 @@ struct Cli {
     #[arg(long, value_name = "WORD=IPA")]
     pronunciation: Vec<Pronunciation>,
 
+    /// Visible M4B navigation depth
+    #[arg(long, value_enum, default_value = "chapters")]
+    nav: NavOption,
+
+    /// Footnote narration policy
+    #[arg(long, value_enum, default_value = "inline")]
+    footnotes: FootnoteOption,
+
     /// Phoneme tokens per synthesis chunk
     #[arg(long, default_value_t = DEFAULT_MAX_PHONEMES, hide = true)]
     chunk_phonemes: usize,
@@ -56,6 +71,40 @@ struct Cli {
 
     #[command(subcommand)]
     command: Option<Command>,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum NavOption {
+    Chapters,
+    Sections,
+    Auto,
+}
+
+impl From<NavOption> for ChapterPolicy {
+    fn from(value: NavOption) -> Self {
+        match value {
+            NavOption::Chapters => Self::Chapters,
+            NavOption::Sections => Self::Sections,
+            NavOption::Auto => Self::Auto,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum FootnoteOption {
+    Inline,
+    Skip,
+    End,
+}
+
+impl From<FootnoteOption> for FootnoteMode {
+    fn from(value: FootnoteOption) -> Self {
+        match value {
+            FootnoteOption::Inline => Self::Inline,
+            FootnoteOption::Skip => Self::Skip,
+            FootnoteOption::End => Self::End,
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -113,10 +162,10 @@ pub fn run() -> Result<()> {
             bail!(terminal_text(rendered));
         }
     };
-    run_with(cli)
+    run_with(&cli)
 }
 
-fn run_with(cli: Cli) -> Result<()> {
+fn run_with(cli: &Cli) -> Result<()> {
     match &cli.command {
         Some(Command::Inspect { input, tree }) => {
             let book = read_book(input)?;
@@ -154,55 +203,101 @@ fn run_with(cli: Cli) -> Result<()> {
         None => {}
     }
 
+    run_conversion(cli)
+}
+
+fn run_conversion(cli: &Cli) -> Result<()> {
     let input = cli
         .input
+        .as_deref()
         .context("missing INPUT; run `kokoro-book --help`")?;
-    let book = read_book(&input)?;
+    let book = read_book(input)?;
     for warning in &book.warnings {
         eprintln!("WARN: {}", terminal_text(warning));
     }
-    let output = cli.output.unwrap_or_else(|| default_output(&input));
-    if output
-        .extension()
-        .and_then(|value| value.to_str())
-        .is_none_or(|extension| !extension.eq_ignore_ascii_case("wav"))
-    {
-        bail!("output must use the .wav extension");
-    }
     let voice = Voice::from_str(&cli.voice)?;
     validate_settings(cli.speed, cli.chunk_phonemes)?;
-    ensure_supported_platform()?;
-    let cache = default_cache_dir()?;
-    let assets = ensure_model(&cache, voice)?;
-    let report = synthesize_to_wav(
-        &assets,
-        &SynthesisOptions {
-            text: &book.text,
-            output: &output,
-            voice,
-            pronunciations: &cli.pronunciation,
-            speed: cli.speed,
-            max_phonemes: cli.chunk_phonemes,
-            quiet: cli.quiet,
-            worker_limits: WorkerLimits::default(),
-        },
-    )?;
+    let options = conversion_options(cli, input)?;
+    validate_build_options(&options)?;
+    ensure_media_tools()?;
 
-    eprintln!(
-        "Created {} | {:.2}s audio | {:.2}s synthesis | RTF {:.3} | {:.3}s model load | {} chunks | {} requests | {} restarts | MLX peak {:.2} GiB | cache {} B | PCM peak {:.3}",
-        terminal_text(&report.output.display().to_string()),
-        report.audio_seconds,
-        report.synthesis_seconds,
-        report.rtf,
-        report.model_load_seconds,
-        report.chunks,
-        report.worker_requests,
-        report.worker_restarts,
-        bytes_to_gib(report.memory.peak_bytes),
-        report.memory.cached_bytes,
-        report.peak_amplitude,
-    );
+    let plan = plan_narration(&book, options.narration);
+    for warning in &plan.warnings {
+        eprintln!("WARN: {}", terminal_text(warning));
+    }
+    if plan.units.is_empty() {
+        bail!("input contains no text under the selected narration policy");
+    }
+
+    ensure_supported_platform()?;
+    let cache_root = default_cache_dir()?;
+    let assets = ensure_model(&cache_root, voice)?;
+    let segment_cache = SegmentCache::new(cache_root.join("segments"));
+    let mut provider = KokoroTtsProvider::launch(
+        &assets,
+        voice,
+        &cli.pronunciation,
+        cli.chunk_phonemes,
+        WorkerLimits::default(),
+    )?;
+    let build_result = build_audiobook(&book, &mut provider, &segment_cache, &options);
+    let provider_result = provider.finish();
+    let report = build_result?;
+    let provider_report = provider_result?;
+
+    print_build_report(&report, provider_report, cli.quiet);
     Ok(())
+}
+
+fn conversion_options(cli: &Cli, input: &Path) -> Result<AudiobookBuildOptions> {
+    Ok(AudiobookBuildOptions {
+        output_dir: cli
+            .output
+            .clone()
+            .unwrap_or_else(|| default_output_directory(input)),
+        base_name: output_base_name(input)?,
+        chapters: cli.nav.into(),
+        narration: NarrationPolicy {
+            footnotes: cli.footnotes.into(),
+        },
+        synthesis: SynthesisSettings {
+            speed: cli.speed,
+            pause_ms: 120,
+            max_retries: 2,
+        },
+        pronunciation_overrides: cli.pronunciation.iter().map(ToString::to_string).collect(),
+        build_timestamp_unix_seconds: build_timestamp()?,
+    })
+}
+
+fn print_build_report(report: &AudiobookBuildReport, provider: KokoroProviderReport, quiet: bool) {
+    eprintln!("Created {}", terminal_path(&report.m4b_path));
+    if quiet {
+        return;
+    }
+    let audio_seconds = Duration::from_millis(report.m4b.duration_ms).as_secs_f64();
+    let rtf = if audio_seconds > 0.0 {
+        provider.synthesis_seconds / audio_seconds
+    } else {
+        0.0
+    };
+    eprintln!(
+        "Audio {:.2}s | synthesis {:.2}s | RTF {:.3} | model load {:.3}s | {} requests | {} restarts | MLX peak {:.2} GiB | {} cache hits | {} new chunks",
+        audio_seconds,
+        provider.synthesis_seconds,
+        rtf,
+        provider.model_load_seconds,
+        provider.worker_requests,
+        provider.worker_restarts,
+        bytes_to_gib(provider.memory.peak_bytes),
+        report.synthesis.cache_hits,
+        report.synthesis.generated_chunks,
+    );
+    eprintln!("Navigation {}", terminal_path(&report.audionav_path));
+    eprintln!("Manifest {}", terminal_path(&report.manifest_path));
+    if let Some(cover) = report.cover_path.as_ref() {
+        eprintln!("Cover {}", terminal_path(cover));
+    }
 }
 
 fn print_inspection(book: &crate::book::CanonicalBook, tree: bool) {
@@ -301,6 +396,25 @@ fn bytes_to_gib(bytes: u64) -> f64 {
     bytes as f64 / 1_073_741_824.0
 }
 
-fn default_output(input: &Path) -> PathBuf {
-    input.with_extension("wav")
+fn terminal_path(path: &Path) -> String {
+    terminal_text(&path.display().to_string())
+}
+
+fn default_output_directory(input: &Path) -> PathBuf {
+    input.with_extension("")
+}
+
+fn output_base_name(input: &Path) -> Result<String> {
+    let base_name = input
+        .file_stem()
+        .filter(|value| !value.is_empty())
+        .context("input path has no usable file name")?;
+    Ok(base_name.to_string_lossy().into_owned())
+}
+
+fn build_timestamp() -> Result<u64> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("system clock is before the Unix epoch")
+        .map(|duration| duration.as_secs())
 }

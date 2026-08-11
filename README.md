@@ -1,6 +1,8 @@
 # kokoro-book
 
-A small offline CLI that turns an English EPUB, DRM-free AZW3/MOBI, text-based PDF, HTML, Markdown, or UTF-8 TXT file into a WAV audiobook with [Kokoro-82M-bf16](https://huggingface.co/mlx-community/Kokoro-82M-bf16).
+A local-first CLI that turns an English EPUB, DRM-free AZW3/MOBI, text-based PDF, HTML, Markdown, or UTF-8 TXT file into a navigable M4B audiobook with [Kokoro-82M-bf16](https://huggingface.co/mlx-community/Kokoro-82M-bf16).
+
+Navigation is a primary feature. `kokoro-book` keeps authored parts, chapters, sections, pages, paragraphs, sentences, and source locations separate from internal TTS chunks. The M4B exposes useful player chapters. A richer sidecar keeps the detail needed for later page, paragraph, search, and synchronized-text navigation.
 
 One model. One MLX worker. Preset voices only. No Python, server, GUI, eSpeak, ONNX Runtime, or voice cloning.
 
@@ -12,9 +14,10 @@ You need:
 - Rust 1.88 or newer
 - Xcode Command Line Tools
 - CMake
+- FFmpeg, including `ffprobe`
 
 ```sh
-brew install cmake
+brew install cmake ffmpeg
 cargo install --git https://github.com/tw4dl/kokoro-book --locked
 ```
 
@@ -28,12 +31,23 @@ kokoro-book inspect book.epub
 kokoro-book inspect reference.pdf --tree
 kokoro-book inspect reference.azw3 --tree
 kokoro-book inspect notes.md --tree
-kokoro-book notes.txt --output notes.wav
-kokoro-book book.epub --voice af_sky --speed 1.1
+kokoro-book notes.txt --output ./notes-audiobook
+kokoro-book book.epub --voice af_sky --speed 1.1 --nav chapters
+kokoro-book book.epub --footnotes end
 kokoro-book voices
 ```
 
-The default output sits beside the input with a `.wav` extension. The audio format is mono, 16-bit PCM, 24 kHz. The default voice is `af_heart`. Run `kokoro-book voices` for the 28 English presets.
+For `book.epub`, the default output is:
+
+```text
+book/
+├── book.m4b
+├── book.audionav.json
+├── book.manifest.json
+└── cover.jpg              optional
+```
+
+`--output DIR` changes the output directory. The base file name still comes from the source. The M4B contains mono 64 kbit/s AAC audio, title and author metadata, an embedded cover when present, and stable chapter markers. The default voice is `af_heart`. Run `kokoro-book voices` for the 28 English presets.
 
 `inspect` reports imported metadata and semantic sections without loading or downloading the TTS model. EPUB inspection includes the format version, author, language, cover, and authored page count when present. Explicit creator roles keep non-author contributors out of the author list. Use `--tree` to show the nested navigation structure. EPUB 3 navigation documents and EPUB 2 NCX files take priority over spine XHTML headings. EPUB 3 token lists and image alternative labels remain usable navigation. Page lists take priority over EPUB 3 `pagebreak` markers. The importer accepts UTF-8 and BOM-marked UTF-16 XML, follows manifest fallback chains around foreign or scripted resources, reads SVG text as source-mapped blocks, and preserves cover bytes, semantic containers, footnotes, source resources, source fragments, and spine order in `CanonicalBook`. Broken navigation links become warnings and do not hide readable spine content.
 
@@ -62,41 +76,65 @@ kokoro-book book.epub \
 
 Repeat `--pronunciation WORD=IPA` as needed. A regression test and a public-domain book check cover a name that lean Misaki otherwise spells out.
 
+## Navigation and footnotes
+
+The default `--nav chapters` policy exposes parts, chapters, and other major divisions in the M4B. `--nav sections` also exposes meaningful lower-level sections. `--nav auto` uses major divisions when present and falls back to sections for documents without them. Provider chunk boundaries never become player chapters.
+
+The default `--footnotes inline` narrates each note where it occurs. `--footnotes skip` keeps notes and source mappings in `CanonicalBook` but omits their speech and records warnings. `--footnotes end` moves their speech to the end of the narration. All three choices are recorded in the manifest.
+
 ## How it works
 
 ```text
 EPUB, DRM-free AZW3/MOBI, text-based PDF, HTML, Markdown, or TXT
   -> format-specific import
   -> CanonicalBook
-  -> semantic normalization
-  -> G2P
-  -> bounded phoneme chunks
-  -> one isolated MLX worker
-  -> streamed PCM
-  -> atomic WAV
+  -> semantic narration and normalization
+  -> provider-sized requests
+  -> Kokoro G2P and one isolated MLX worker
+  -> resumable segment cache
+  -> AudioTimeline
+  -> M4B + audionav.json + manifest.json
 ```
 
-The parent process never holds the full audiobook in memory. It sends length-prefixed requests to one long-lived worker. The default limit is 200 phonemes per request.
+All importers stop at the format-neutral `CanonicalBook`. They do not know about Kokoro, AAC, or M4B. Narration handles headings, paragraphs, lists, notes, figures with useful captions, source navigation, and code as distinct block types. It normalizes whitespace, line-wrap hyphenation, soft hyphens, common Unicode punctuation, numeric citations, URLs, and standalone page numbers before synthesis. The `AudioTimeline` records section, page, paragraph, sentence, footnote, and figure cues with source ranges when available.
 
-After each request, the worker evaluates and copies the PCM, drops the MLX audio array, clears the MLX allocation cache, and checks the native memory counters. Cached memory must return to at most 1 MiB. MLX active and peak memory must stay below 4 GiB. A failed request restarts the worker, splits that chunk once, and retries both halves. The CLI never starts parallel TTS workers.
+The parent process never holds the full audiobook in memory. It sends length-prefixed requests to one long-lived worker, stores each valid result as an atomic cache segment, and streams cached PCM during final assembly. The hidden phoneme limit defaults to 200 per MLX request. A separate 400-character provider limit controls the resumable cache units. Neither limit changes user-facing navigation.
+
+After each request, the worker evaluates and copies the PCM, drops the MLX audio array, clears the MLX allocation cache, and checks the native memory counters. Cached memory must return to at most 1 MiB. MLX active and peak memory must stay below 4 GiB. A failed worker request restarts the worker and splits that phoneme chunk once. Provider requests also have two bounded retries. The CLI never starts parallel TTS workers.
 
 All unsafe MLX C calls live in `crates/mlx-memory-control`. The main library and CLI use `#![forbid(unsafe_code)]`.
 
-## Model cache
+## Cache and recovery
 
 The default cache is `~/Library/Caches/kokoro-book`.
 
-Set `KOKORO_BOOK_CACHE_DIR` to override it. Downloads come from one pinned Hugging Face revision. The model and every English voice have fixed SHA-256 hashes. The CLI checks each file before use.
+Set `KOKORO_BOOK_CACHE_DIR` to override it. Model downloads come from one pinned Hugging Face revision. The model and every English voice have fixed SHA-256 hashes. The CLI checks each file before use.
+
+Successful speech segments remain under the same cache root. A retry after interruption reuses valid segments. Cache keys include normalized text, provider, pinned model, voice, language, speed, sample rate, provider limits, phoneme chunk policy, and pronunciation configuration. A narration-affecting change therefore creates a new cache entry. Corrupt or incomplete WAV cache entries are rejected and generated again.
+
+## Generated metadata
+
+`book.audionav.json` uses schema version 1. It contains a hierarchical TOC, duration, page cues when the source has meaningful pages, paragraph and sentence cues, timestamps, stable section IDs, and source ranges.
+
+`book.manifest.json` uses schema version 1. It records the source path and SHA-256 hash, source format, tool and importer versions, detected metadata, provider/model/voice identity, configuration hash, pronunciation overrides, speed, footnote and chapter policies, pause/retry settings, AAC settings, warnings, output files, build time, duration, and counts. It does not record API keys or other credentials.
+
+## Privacy and security
+
+Book parsing, speech generation, caching, and AAC assembly run locally. The first use of a model or voice downloads only that pinned asset from Hugging Face. Book text is not sent to a cloud TTS service. `ffmpeg` and `ffprobe` receive local file paths as direct process arguments, not shell text.
+
+Input files are untrusted. The importers do not run embedded scripts or fetch external HTML resources. EPUB paths and decompression are checked before parsing. HTML/XML nesting and attributes are bounded. PDF object, page, stream, outline, and tree work is bounded. MOBI records, offsets, compression, metadata, and encryption flags are validated. Terminal output replaces control and bidirectional override characters from book metadata and file names.
+
+DRM removal is not supported. Purchasing a book does not make its encryption removable by this tool. Use a DRM-free copy that you are allowed to process. Protected EPUB resources, password-protected PDFs, and encrypted Kindle books fail before synthesis with a clear error.
 
 ## Scope
 
 - Input: English `.epub`, DRM-free `.azw3`/`.mobi`, text-based `.pdf`, `.html`/`.xhtml`, `.md`, and UTF-8 `.txt`
-- Output: one `.wav`
+- Output: one `.m4b`, one versioned navigation sidecar, one reproducibility manifest, and an optional JPEG cover
 - Inference: native MLX through `mlx-rs`
 - Phonemes: lean `misaki-rs`
 - Voices: English Kokoro presets only
 
-Current limitations: conversion still emits WAV rather than M4B plus navigation sidecars. The new M4B, semantic narration, resumable segment cache, and sidecar modules are not wired into the public conversion command yet. HUFF/CDIC MOBI, binary-only KF8 navigation, combined-file KF8 rendition selection, tagged-PDF logical structure, OCR, translation, MP3, a web UI, and voice cloning are not implemented yet. DRM removal is out of scope; unsupported encrypted resources fail before parsing or synthesis.
+Current limitations: HUFF/CDIC MOBI, binary-only KF8 navigation, combined-file KF8 rendition selection, tagged-PDF logical structure, complex-table preservation/narration, OCR, translation, MP3, a custom player, a web UI, and voice cloning are not implemented. `--nav auto` does not yet promote sections based on listening duration. Source text remains in the semantic model and navigation sidecar, but there is no `locate` or synchronized-text command yet.
 
 ## Performance
 

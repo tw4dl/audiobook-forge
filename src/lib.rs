@@ -4,6 +4,7 @@
 
 pub mod audio;
 pub mod book;
+pub mod build;
 pub mod chunk;
 pub mod cli;
 pub mod input;

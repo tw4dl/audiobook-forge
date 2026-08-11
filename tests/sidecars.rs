@@ -72,6 +72,9 @@ fn writes_reproducible_manifest_inputs_without_credentials() {
         speed: 1.0,
         footnotes: FootnoteMode::Inline,
         chapters: ChapterPolicy::Chapters,
+        pause_ms: 120,
+        max_retries: 2,
+        pronunciation_overrides: vec!["Example=ɪɡzˈæmpəl".to_owned()],
         output_files: vec!["book.m4b".into(), "book.audionav.json".into()],
         build_timestamp_unix_seconds: 1_786_406_400,
     };
@@ -88,6 +91,13 @@ fn writes_reproducible_manifest_inputs_without_credentials() {
     assert_eq!(json["source"]["format"], "TXT");
     assert_eq!(json["narration"]["provider"], "mock");
     assert_eq!(json["narration"]["voice"], "manifest-voice");
+    assert_eq!(json["narration"]["configuration_hash"], "mock-v1");
+    assert_eq!(json["narration"]["pause_ms"], 120);
+    assert_eq!(json["narration"]["max_retries"], 2);
+    assert_eq!(
+        json["narration"]["pronunciation_overrides"][0],
+        "Example=ɪɡzˈæmpəl"
+    );
     assert_eq!(json["encoding"]["codec"], "aac");
     assert_eq!(json["chapter_policy"], "chapters");
     assert_eq!(json["build_timestamp_unix_seconds"], 1_786_406_400_u64);

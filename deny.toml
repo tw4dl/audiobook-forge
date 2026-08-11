@@ -7,6 +7,10 @@ targets = [
 
 [advisories]
 yanked = "deny"
+# Transitive through the pinned voice-tts -> mlx-rs stack. This is an
+# unmaintained proc-macro advisory with no safe upgrade; it is not shipped as
+# runtime code. Remove this exception when the upstream MLX stack replaces it.
+ignore = ["RUSTSEC-2024-0436"]
 
 [licenses]
 confidence-threshold = 0.93

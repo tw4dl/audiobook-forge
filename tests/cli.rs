@@ -23,7 +23,10 @@ fn help_describes_conversion_and_inspection() {
         .stdout(predicate::str::contains("inspect"))
         .stdout(predicate::str::contains("--voice"))
         .stdout(predicate::str::contains("--pronunciation"))
-        .stdout(predicate::str::contains("--output"));
+        .stdout(predicate::str::contains("--output"))
+        .stdout(predicate::str::contains("--nav"))
+        .stdout(predicate::str::contains("--footnotes"))
+        .stdout(predicate::str::contains("M4B"));
 }
 
 #[test]
@@ -293,10 +296,7 @@ fn invalid_options_fail_before_any_download() {
             vec!["--pronunciation", "Cormer"],
             "pronunciation must use WORD=IPA",
         ),
-        (
-            vec!["--output", "book.mp3"],
-            "output must use the .wav extension",
-        ),
+        (vec!["--nav", "everything"], "invalid value 'everything'"),
     ] {
         let temp = tempdir().expect("temp dir");
         let input = temp.path().join("book.txt");
@@ -314,4 +314,28 @@ fn invalid_options_fail_before_any_download() {
 
         assert!(!cache.exists());
     }
+}
+
+#[test]
+fn output_file_path_fails_before_model_setup() {
+    let temp = tempdir().expect("temp dir");
+    let input = temp.path().join("book.txt");
+    let output = temp.path().join("occupied");
+    let cache = temp.path().join("cache");
+    std::fs::write(&input, "A short test sentence.").expect("fixture");
+    std::fs::write(&output, "not a directory").expect("occupied output");
+
+    Command::cargo_bin("kokoro-book")
+        .expect("binary")
+        .arg(&input)
+        .arg("--output")
+        .arg(&output)
+        .env("KOKORO_BOOK_CACHE_DIR", &cache)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "audiobook output path is not a directory",
+        ));
+
+    assert!(!cache.exists());
 }

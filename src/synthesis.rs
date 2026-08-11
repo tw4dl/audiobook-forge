@@ -21,6 +21,7 @@ pub struct TtsProviderIdentity {
     pub model: String,
     pub voice: String,
     pub language: Option<String>,
+    pub configuration_hash: String,
     pub max_characters: usize,
     pub sample_rate: u32,
 }
@@ -310,6 +311,7 @@ fn cache_key(identity: &TtsProviderIdentity, request: &TtsRequest) -> String {
         identity.model.as_str(),
         identity.voice.as_str(),
         identity.language.as_deref().unwrap_or_default(),
+        identity.configuration_hash.as_str(),
         request.text.as_str(),
     ] {
         digest.update(value.as_bytes());
@@ -490,6 +492,7 @@ impl MockTtsProvider {
                 model: "deterministic-v1".to_owned(),
                 voice: voice.to_owned(),
                 language: Some("en".to_owned()),
+                configuration_hash: "mock-v1".to_owned(),
                 max_characters,
                 sample_rate,
             },

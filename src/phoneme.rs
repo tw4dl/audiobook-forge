@@ -1,5 +1,6 @@
 //! English grapheme-to-phoneme conversion without eSpeak.
 
+use std::fmt::{self, Display};
 use std::str::FromStr;
 
 use anyhow::{Context, Result, bail};
@@ -12,6 +13,12 @@ use crate::vocab;
 pub(crate) struct Pronunciation {
     word: String,
     phonemes: String,
+}
+
+impl Display for Pronunciation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}={}", self.word, self.phonemes)
+    }
 }
 
 impl FromStr for Pronunciation {
