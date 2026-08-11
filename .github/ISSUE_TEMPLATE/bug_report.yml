@@ -1,0 +1,49 @@
+name: Bug report
+description: Report a reproducible problem with the CLI or its local runtime.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include book files, personal data, model weights, credentials, or private paths.
+        For security vulnerabilities, use [SECURITY.md](https://github.com/tw4dl/audiobook-forge/blob/main/SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: "0.1.0 or abc1234"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      placeholder: "macOS 26.1, Apple M1 Pro"
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      options:
+        - Kokoro
+        - Qwen
+        - Import or metadata
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Include the command with sensitive paths removed and the exact error.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true

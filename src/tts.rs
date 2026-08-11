@@ -7,7 +7,10 @@ use crate::audio::SAMPLE_RATE;
 use crate::model::{MODEL_BUNDLE_NAME, MODEL_REVISION, ModelAssets};
 use crate::phoneme::Pronunciation;
 use crate::pipeline::phonemize_book;
-use crate::synthesis::{TtsAudio, TtsProvider, TtsProviderIdentity, TtsRequest};
+use crate::synthesis::{
+    PhonemeNormalizationReport, TtsAudio, TtsInputMode, TtsProvider, TtsProviderDiagnostics,
+    TtsProviderIdentity, TtsRequest,
+};
 use crate::vocab;
 use crate::voice::Voice;
 use crate::worker::{
@@ -34,6 +37,7 @@ pub(crate) struct KokoroTtsProvider<W = ProcessWorker> {
     pronunciations: Vec<Pronunciation>,
     max_phonemes: usize,
     synthesis_seconds: f64,
+    phoneme_normalization: PhonemeNormalizationReport,
 }
 
 impl KokoroTtsProvider<ProcessWorker> {
@@ -88,6 +92,7 @@ impl<W: ChunkWorker> KokoroTtsProvider<W> {
             pronunciations: pronunciations.to_vec(),
             max_phonemes,
             synthesis_seconds: 0.0,
+            phoneme_normalization: PhonemeNormalizationReport::default(),
         }
     }
 }
@@ -97,13 +102,35 @@ impl<W: ChunkWorker> TtsProvider for KokoroTtsProvider<W> {
         &self.identity
     }
 
+    fn input_mode(&self) -> TtsInputMode {
+        TtsInputMode::PreparedPhonemes
+    }
+
+    fn diagnostics(&self) -> TtsProviderDiagnostics {
+        TtsProviderDiagnostics {
+            phoneme_normalization: self.phoneme_normalization.clone(),
+        }
+    }
+
     fn synthesize(&mut self, request: &TtsRequest) -> Result<TtsAudio> {
-        let chunks = phonemize_book(
-            &request.text,
-            self.voice,
-            &self.pronunciations,
-            self.max_phonemes,
-        )?;
+        let chunks = if let Some(prepared) = request.phoneme_chunks.as_ref() {
+            for chunk in prepared {
+                vocab::token_ids(chunk)?;
+            }
+            prepared.clone()
+        } else {
+            let phonemization = phonemize_book(
+                &request.text,
+                self.voice,
+                &self.pronunciations,
+                self.max_phonemes,
+            )?;
+            self.phoneme_normalization.automatic_repairs +=
+                phonemization.normalization.automatic_repairs;
+            self.phoneme_normalization.syllabic_consonant +=
+                phonemization.normalization.syllabic_consonant;
+            phonemization.chunks
+        };
         let worker = self.worker.as_mut().context("MLX worker is unavailable")?;
         let mut samples = Vec::new();
         for chunk in chunks {
@@ -125,9 +152,14 @@ impl<W: ChunkWorker> TtsProvider for KokoroTtsProvider<W> {
     }
 }
 
-fn configuration_hash(voice: Voice, overrides: &[String], max_phonemes: usize) -> String {
+pub(crate) fn configuration_hash(
+    voice: Voice,
+    overrides: &[String],
+    max_phonemes: usize,
+) -> String {
     let mut digest = Sha256::new();
     digest.update(b"kokoro-book-provider-v1\0");
+    digest.update(crate::vocab::PHONEME_NORMALIZATION_VERSION.to_le_bytes());
     digest.update(MODEL_REVISION.as_bytes());
     digest.update([0]);
     digest.update(voice.name().as_bytes());
@@ -205,12 +237,31 @@ mod tests {
             .synthesize(&TtsRequest {
                 text: "Hello world.".to_owned(),
                 speed: 1.0,
+                phoneme_chunks: None,
             })
             .expect("audio");
 
         assert_eq!(audio.sample_rate, 24_000);
         assert!(!audio.samples.is_empty());
         assert_eq!(provider.worker.expect("worker").requests.len(), 1);
+    }
+
+    #[test]
+    fn provider_reports_silent_syllabic_consonant_repairs() {
+        let voice: Voice = "af_heart".parse().expect("voice");
+        let mut provider = KokoroTtsProvider::new(RecordingWorker::default(), voice, &[], 200);
+
+        provider
+            .synthesize(&TtsRequest {
+                text: "Written and certain.".to_owned(),
+                speed: 1.0,
+                phoneme_chunks: None,
+            })
+            .expect("audio");
+
+        let report = provider.diagnostics().phoneme_normalization;
+        assert!(report.automatic_repairs >= 2);
+        assert_eq!(report.automatic_repairs, report.syllabic_consonant);
     }
 
     #[test]

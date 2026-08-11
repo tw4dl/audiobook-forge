@@ -5,7 +5,11 @@ use kokoro_book::book::{
     SourceFormat, TextBlock,
 };
 use kokoro_book::narration::{NarrationPolicy, plan_narration};
-use kokoro_book::synthesis::{MockTtsProvider, SegmentCache, SynthesisSettings, synthesize_plan};
+use kokoro_book::preflight::{PreparedNarration, PreparedNarrationUnit};
+use kokoro_book::synthesis::{
+    MockTtsProvider, PhonemeNormalizationReport, SegmentCache, SynthesisSettings, TtsInputMode,
+    synthesize_plan,
+};
 use kokoro_book::timeline::CueKind;
 use tempfile::tempdir;
 
@@ -74,6 +78,12 @@ fn reuses_valid_cached_chunks_and_invalidates_narration_changes() {
         .expect("changed narration build");
     assert_eq!(changed.cache_hits, 0);
     assert!(!changed_voice.requests().is_empty());
+
+    let mut changed_provider = MockTtsProvider::new("voice-a", 200, 1_000).with_provider("qwen");
+    let changed = synthesize_plan(&plan, &mut changed_provider, &cache, &settings)
+        .expect("changed provider build");
+    assert_eq!(changed.cache_hits, 0);
+    assert!(!changed_provider.requests().is_empty());
 }
 
 #[test]
@@ -121,6 +131,114 @@ fn corrupt_cached_audio_is_rebuilt_instead_of_reused() {
         rebuilt_result.provider_chunks
     );
     assert_eq!(rebuilt.requests().len(), 1);
+}
+
+#[test]
+fn consumes_prepared_phonemes_without_repeating_text_phonemization() {
+    let temp = tempdir().expect("temp dir");
+    let plan = plan_narration(&two_paragraph_book(), NarrationPolicy::default());
+    let prepared = PreparedNarration {
+        schema_version: 1,
+        complete: true,
+        source_sha256: "source".to_owned(),
+        profile: "mock".to_owned(),
+        provider_configuration_hash: "mock-v1".to_owned(),
+        normalization_version: 1,
+        max_phonemes: 200,
+        max_characters: 200,
+        units: plan
+            .units
+            .iter()
+            .map(|unit| PreparedNarrationUnit {
+                unit_id: unit.id.clone(),
+                section_id: unit.section_id.clone(),
+                status: "ready".to_owned(),
+                original_text: unit.original_text.clone(),
+                tts_text: unit.text.clone(),
+                sentences: Vec::new(),
+                phoneme_chunks: vec!["prepared".to_owned()],
+                source_range: unit.source_range.clone(),
+                text_normalization: unit.normalization.clone(),
+                phoneme_normalization: PhonemeNormalizationReport::default(),
+                repairs: Vec::new(),
+            })
+            .collect(),
+    };
+    let mut provider = MockTtsProvider::new("mock-voice", 200, 1_000)
+        .with_input_mode(TtsInputMode::PreparedPhonemes);
+    let result = synthesize_plan(
+        &plan,
+        &mut provider,
+        &SegmentCache::new(temp.path().join("cache")),
+        &SynthesisSettings {
+            prepared: Some(prepared),
+            ..SynthesisSettings::default()
+        },
+    )
+    .expect("prepared synthesis");
+
+    assert_eq!(result.provider_chunks, plan.units.len());
+    assert!(provider.requests().iter().all(|request| {
+        request
+            .phoneme_chunks
+            .as_ref()
+            .is_some_and(|chunks| chunks == &vec!["prepared".to_owned()])
+    }));
+}
+
+#[test]
+fn raw_text_provider_uses_prepared_text_without_kokoro_phonemes() {
+    let temp = tempdir().expect("temp dir");
+    let plan = plan_narration(&two_paragraph_book(), NarrationPolicy::default());
+    let prepared = PreparedNarration {
+        schema_version: 1,
+        complete: true,
+        source_sha256: "source".to_owned(),
+        profile: "mock".to_owned(),
+        provider_configuration_hash: "mock-v1".to_owned(),
+        normalization_version: 1,
+        max_phonemes: 200,
+        max_characters: 12,
+        units: plan
+            .units
+            .iter()
+            .map(|unit| PreparedNarrationUnit {
+                unit_id: unit.id.clone(),
+                section_id: unit.section_id.clone(),
+                status: "ready".to_owned(),
+                original_text: unit.original_text.clone(),
+                tts_text: unit.text.clone(),
+                sentences: Vec::new(),
+                phoneme_chunks: vec!["kokoro-only-1".to_owned(), "kokoro-only-2".to_owned()],
+                source_range: unit.source_range.clone(),
+                text_normalization: unit.normalization.clone(),
+                phoneme_normalization: PhonemeNormalizationReport::default(),
+                repairs: Vec::new(),
+            })
+            .collect(),
+    };
+    let mut provider = MockTtsProvider::new("raw-text-voice", 12, 1_000);
+    let result = synthesize_plan(
+        &plan,
+        &mut provider,
+        &SegmentCache::new(temp.path().join("cache")),
+        &SynthesisSettings {
+            prepared: Some(prepared),
+            ..SynthesisSettings::default()
+        },
+    )
+    .expect("raw-text synthesis");
+
+    assert!(result.provider_chunks > plan.units.len());
+    assert!(
+        provider
+            .requests()
+            .iter()
+            .all(|request| request.phoneme_chunks.is_none())
+    );
+    assert!(provider.requests().iter().all(|request| {
+        !request.text.contains("kokoro-only") && request.text.chars().count() <= 12
+    }));
 }
 
 fn two_paragraph_book() -> CanonicalBook {

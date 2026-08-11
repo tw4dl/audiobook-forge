@@ -1,5 +1,9 @@
 //! Semantic narration planning and speech normalization.
 
+use std::collections::BTreeMap;
+
+use serde::Serialize;
+
 use crate::book::{Block, CanonicalBook, Section, SectionKind, SourcePosition, SourceRange};
 use crate::pipeline::extract_sentences;
 use crate::timeline::CueKind;
@@ -27,9 +31,45 @@ impl Default for NarrationPolicy {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NarrationUnit {
     pub id: String,
+    pub original_text: String,
     pub text: String,
     pub section_id: Option<String>,
     pub source_range: Option<SourceRange>,
+    pub normalization: TextNormalizationReport,
+}
+
+/// Deterministic text changes applied only to narration text.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub struct TextNormalizationReport {
+    pub count: usize,
+    pub by_rule: BTreeMap<String, usize>,
+    pub repairs: Vec<TextRepair>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
+pub struct TextRepair {
+    pub rule: String,
+    pub from: String,
+    pub to: String,
+}
+
+impl TextNormalizationReport {
+    fn add(&mut self, rule: &str, count: usize) {
+        if count == 0 {
+            return;
+        }
+        self.count += count;
+        *self.by_rule.entry(rule.to_owned()).or_default() += count;
+    }
+
+    fn record(&mut self, rule: &str, from: impl Into<String>, to: impl Into<String>) {
+        self.add(rule, 1);
+        self.repairs.push(TextRepair {
+            rule: rule.to_owned(),
+            from: from.into(),
+            to: to.into(),
+        });
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -244,7 +284,7 @@ impl PlanBuilder {
         source_range: Option<SourceRange>,
         section_id: Option<String>,
     ) {
-        let normalized = normalize_for_speech(raw);
+        let (normalized, text_normalization) = normalize_for_speech_with_report(raw);
         if normalized.is_empty() {
             return;
         }
@@ -255,9 +295,15 @@ impl PlanBuilder {
             let sentence_start = self.units.len();
             self.units.push(NarrationUnit {
                 id: sentence_id.clone(),
+                original_text: raw.to_owned(),
                 text: sentence,
                 section_id: section_id.clone(),
                 source_range: source_range.clone(),
+                normalization: if index == 0 {
+                    text_normalization.clone()
+                } else {
+                    TextNormalizationReport::default()
+                },
             });
             if include_sentence_cues {
                 self.cues.push(PlannedCue {
@@ -289,29 +335,160 @@ impl PlanBuilder {
 /// Normalize extracted text into deterministic narration text.
 #[must_use]
 pub fn normalize_for_speech(raw: &str) -> String {
-    let joined = raw
-        .replace("-\r\n", "")
-        .replace("-\n", "")
-        .replace("-\r", "")
-        .replace('\u{00ad}', "");
+    normalize_for_speech_with_report(raw).0
+}
+
+/// Normalize narration text and record every deterministic text repair.
+#[must_use]
+pub fn normalize_for_speech_with_report(raw: &str) -> (String, TextNormalizationReport) {
+    let mut report = TextNormalizationReport::default();
+    let mut joined = raw.to_owned();
+    for (needle, rule) in [
+        ("-\r\n", "soft_hyphen_line_join"),
+        ("-\n", "soft_hyphen_line_join"),
+        ("-\r", "soft_hyphen_line_join"),
+    ] {
+        let count = joined.matches(needle).count();
+        for _ in 0..count {
+            report.record(rule, needle, "");
+        }
+        joined = joined.replace(needle, "");
+    }
+    let soft_hyphens = joined.matches('\u{00ad}').count();
+    for _ in 0..soft_hyphens {
+        report.record("soft_hyphen", "\u{00ad}", "");
+    }
+    joined = joined.replace('\u{00ad}', "");
+    let joined = expand_currency_symbols(&joined, &mut report);
     let mut punctuation = String::with_capacity(joined.len());
     for character in joined.chars() {
         match character {
-            '\u{00a0}' | '\u{2007}' | '\u{202f}' => punctuation.push(' '),
-            '—' | '–' => punctuation.push_str(", "),
-            '“' | '”' => punctuation.push('"'),
-            '‘' | '’' => punctuation.push('\''),
-            '…' => punctuation.push_str("..."),
+            '\u{00a0}' | '\u{2007}' | '\u{202f}' => {
+                report.record("non_breaking_space", character.to_string(), " ");
+                punctuation.push(' ');
+            }
+            '\u{200b}' | '\u{200c}' | '\u{200d}' | '\u{feff}' => {
+                report.record("zero_width", character.to_string(), "");
+            }
+            '—' | '–' => {
+                report.record("dash", character.to_string(), ", ");
+                punctuation.push_str(", ");
+            }
+            '“' | '”' => {
+                report.record("curly_quote", character.to_string(), "\"");
+                punctuation.push('"');
+            }
+            '‘' | '’' => {
+                report.record("curly_apostrophe", character.to_string(), "'");
+                punctuation.push('\'');
+            }
+            '…' => {
+                report.record("ellipsis", "…", "...");
+                punctuation.push_str("...");
+            }
+            '$' => {
+                report.record("currency_expansion", "$", " dollars ");
+                punctuation.push_str(" dollars ");
+            }
+            '×' => {
+                report.record("multiply_expansion", "×", " times ");
+                punctuation.push_str(" times ");
+            }
+            '=' => {
+                report.record("equals_expansion", "=", " equals ");
+                punctuation.push_str(" equals ");
+            }
+            '©' => {
+                report.record("copyright_expansion", "©", " copyright ");
+                punctuation.push_str(" copyright ");
+            }
             _ => punctuation.push(character),
         }
     }
-    let citations_removed = remove_numeric_citations(&punctuation);
-    citations_removed
-        .split_whitespace()
-        .map(normalize_token)
-        .filter(|token| !token.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
+    let (punctuation, spaced_ellipses) = collapse_spaced_ellipses(&punctuation);
+    for _ in 0..spaced_ellipses {
+        report.record("spaced_ellipsis", ". . .", "...");
+    }
+    let (citations_removed, citations) = remove_numeric_citations(&punctuation);
+    for _ in 0..citations {
+        report.record("numeric_citation", "[number]", "");
+    }
+    let mut normalized_tokens = Vec::new();
+    for token in citations_removed.split_whitespace() {
+        let normalized = normalize_token(token);
+        if normalized != token && is_url_token(token) {
+            report.record("url", token, &normalized);
+        }
+        if !normalized.is_empty() {
+            normalized_tokens.push(normalized);
+        }
+    }
+    (normalized_tokens.join(" "), report)
+}
+
+fn expand_currency_symbols(text: &str, report: &mut TextNormalizationReport) -> String {
+    let characters = text.char_indices().collect::<Vec<_>>();
+    let mut output = String::with_capacity(text.len());
+    let mut index = 0_usize;
+    while index < characters.len() {
+        let (byte_index, character) = characters[index];
+        if character == '$' && index + 1 < characters.len() {
+            let mut end = index + 1;
+            while end < characters.len()
+                && (characters[end].1.is_ascii_digit() || matches!(characters[end].1, ',' | '.'))
+            {
+                end += 1;
+            }
+            if end > index + 1 {
+                let end_byte = characters.get(end).map_or(text.len(), |(byte, _)| *byte);
+                let from = &text[byte_index..end_byte];
+                let number = &text[byte_index + character.len_utf8()..end_byte];
+                let to = format!("{number} dollars");
+                report.record("currency_expansion", from, &to);
+                output.push_str(&to);
+                index = end;
+                continue;
+            }
+        }
+        output.push(character);
+        index += 1;
+    }
+    output
+}
+
+fn collapse_spaced_ellipses(text: &str) -> (String, usize) {
+    let characters = text.chars().collect::<Vec<_>>();
+    let mut output = String::with_capacity(text.len());
+    let mut index = 0_usize;
+    let mut count = 0_usize;
+    while index < characters.len() {
+        if characters[index] == '.' {
+            let mut cursor = index + 1;
+            while cursor < characters.len() && characters[cursor].is_whitespace() {
+                cursor += 1;
+            }
+            if cursor < characters.len() && characters[cursor] == '.' {
+                cursor += 1;
+                while cursor < characters.len() && characters[cursor].is_whitespace() {
+                    cursor += 1;
+                }
+                if cursor < characters.len() && characters[cursor] == '.' {
+                    output.push_str("...");
+                    count += 1;
+                    index = cursor + 1;
+                    continue;
+                }
+            }
+        }
+        output.push(characters[index]);
+        index += 1;
+    }
+    (output, count)
+}
+
+fn is_url_token(token: &str) -> bool {
+    let trimmed = token.trim_matches(['(', '[', '{', '"', '\'']);
+    trimmed.starts_with("http://") || trimmed.starts_with("https://")
 }
 
 fn normalize_token(token: &str) -> String {
@@ -354,10 +531,11 @@ fn normalize_token(token: &str) -> String {
     )
 }
 
-fn remove_numeric_citations(text: &str) -> String {
+fn remove_numeric_citations(text: &str) -> (String, usize) {
     let characters = text.chars().collect::<Vec<_>>();
     let mut output = String::new();
     let mut index = 0_usize;
+    let mut count = 0_usize;
     while index < characters.len() {
         if characters[index] == '['
             && let Some(end) = characters[index + 1..]
@@ -372,13 +550,14 @@ fn remove_numeric_citations(text: &str) -> String {
                 })
             {
                 index = end + 1;
+                count += 1;
                 continue;
             }
         }
         output.push(characters[index]);
         index += 1;
     }
-    output
+    (output, count)
 }
 
 fn sentence_terminated(text: &str) -> String {
@@ -396,7 +575,7 @@ fn is_standalone_page_number(text: &str) -> bool {
 }
 
 fn skip_section(section: &Section) -> bool {
-    if section.kind == SectionKind::Index {
+    if matches!(section.kind, SectionKind::Index | SectionKind::Notes) {
         return true;
     }
     let title = section
@@ -404,10 +583,17 @@ fn skip_section(section: &Section) -> bool {
         .as_deref()
         .unwrap_or_default()
         .to_ascii_lowercase();
-    matches!(
-        title.trim(),
-        "copyright" | "copyright page" | "table of contents" | "contents"
-    )
+    let title = title.trim();
+    title == "copyright"
+        || title == "copyright page"
+        || title == "table of contents"
+        || title == "contents"
+        || title == "notes"
+        || title == "endnotes"
+        || title == "index"
+        || title == "credits"
+        || title.ends_with(" credits")
+        || title == "connect with hmh"
 }
 
 fn section_cue_kind(kind: SectionKind) -> CueKind {

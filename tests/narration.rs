@@ -22,6 +22,56 @@ fn normalizes_document_text_for_speech_without_changing_source_content() {
 }
 
 #[test]
+fn collapses_spaced_ellipsis_without_creating_punctuation_only_units() {
+    let spoken =
+        normalize_for_speech("“But\u{00a0}.\u{00a0}.\u{00a0}. But\u{00a0}.\u{00a0}.\u{00a0}.”");
+
+    assert_eq!(spoken, "\"But ... But ...\"");
+    assert!(
+        kokoro_book::pipeline::extract_sentences(&spoken)
+            .iter()
+            .all(|sentence| sentence
+                .trim_matches(['.', '"'])
+                .chars()
+                .any(char::is_alphabetic))
+    );
+}
+
+#[test]
+fn speaks_currency_and_math_symbols_without_mutating_source_text() {
+    let raw = "($12,000 × 25 = $300,000)";
+
+    let spoken = normalize_for_speech(raw);
+
+    assert!(spoken.contains("dollars"));
+    assert!(spoken.contains("times"));
+    assert!(spoken.contains("equals"));
+    assert!(!spoken.contains('$'));
+    assert!(!spoken.contains('×'));
+    assert!(!spoken.contains('='));
+    assert_eq!(raw, "($12,000 × 25 = $300,000)");
+}
+
+#[test]
+fn removes_ignorable_zero_width_source_marks_without_mutating_source_text() {
+    let raw = "ra\u{200b}dio and co\u{200d}operate";
+
+    assert_eq!(normalize_for_speech(raw), "radio and cooperate");
+    assert_eq!(raw, "ra\u{200b}dio and co\u{200d}operate");
+}
+
+#[test]
+fn expands_copyright_symbol_without_mutating_source_text() {
+    let raw = "© Blue Glass Photography";
+
+    assert_eq!(
+        normalize_for_speech(raw),
+        "copyright Blue Glass Photography"
+    );
+    assert_eq!(raw, "© Blue Glass Photography");
+}
+
+#[test]
 fn narration_uses_semantic_blocks_and_hides_source_navigation_and_page_numbers() {
     let book = semantic_book();
 
@@ -73,6 +123,71 @@ fn footnotes_can_be_skipped_or_moved_to_the_end() {
             .units
             .last()
             .is_some_and(|unit| unit.text.contains("Citation note"))
+    );
+}
+
+#[test]
+fn skips_non_narrative_back_matter_by_default() {
+    let mut book = semantic_book();
+    for (id, kind, title, text) in [
+        (
+            "notes",
+            SectionKind::Notes,
+            "Notes",
+            "Endnotes should not be narrated.",
+        ),
+        (
+            "credits",
+            SectionKind::BackMatter,
+            "Illustration Credits",
+            "Credit text should not be narrated.",
+        ),
+        (
+            "index",
+            SectionKind::Index,
+            "Index",
+            "Index entries should not be narrated.",
+        ),
+        (
+            "publisher",
+            SectionKind::BackMatter,
+            "Connect with HMH",
+            "Publisher promotion should not be narrated.",
+        ),
+    ] {
+        let mut section = Section::new(id, kind, Some(title.to_owned()), 2, Provenance::Authored);
+        section.blocks.push(Block::Paragraph(TextBlock {
+            text: text.to_owned(),
+            source_range: None,
+        }));
+        book.root.children.push(section);
+    }
+
+    let plan = plan_narration(&book, NarrationPolicy::default());
+    let spoken = plan
+        .units
+        .iter()
+        .map(|unit| unit.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    for excluded in [
+        "Endnotes should not be narrated",
+        "Credit text should not be narrated",
+        "Index entries should not be narrated",
+        "Publisher promotion should not be narrated",
+    ] {
+        assert!(
+            !spoken.contains(excluded),
+            "unexpected narration: {excluded}"
+        );
+    }
+    assert_eq!(
+        plan.warnings
+            .iter()
+            .filter(|warning| warning.contains("default narration policy"))
+            .count(),
+        4
     );
 }
 

@@ -22,11 +22,54 @@ fn help_describes_conversion_and_inspection() {
         ))
         .stdout(predicate::str::contains("inspect"))
         .stdout(predicate::str::contains("--voice"))
+        .stdout(predicate::str::contains("--provider"))
         .stdout(predicate::str::contains("--pronunciation"))
         .stdout(predicate::str::contains("--output"))
         .stdout(predicate::str::contains("--nav"))
         .stdout(predicate::str::contains("--footnotes"))
         .stdout(predicate::str::contains("M4B"));
+}
+
+#[test]
+fn qwen_provider_rejects_unsupported_speed_before_runtime_setup() {
+    let temp = tempdir().expect("temp dir");
+    let input = temp.path().join("book.txt");
+    let cache = temp.path().join("cache");
+    std::fs::write(&input, "CHAPTER ONE\nA short test sentence.").expect("fixture");
+
+    Command::cargo_bin("kokoro-book")
+        .expect("binary")
+        .arg(&input)
+        .args(["--provider", "qwen", "--speed", "1.1"])
+        .env("KOKORO_BOOK_CACHE_DIR", &cache)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Qwen provider currently supports only --speed 1.0",
+        ));
+
+    assert!(!cache.exists());
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+fn qwen_provider_reports_a_missing_python_runtime_clearly() {
+    let temp = tempdir().expect("temp dir");
+    let input = temp.path().join("book.txt");
+    let output = temp.path().join("output");
+    let missing_python = temp.path().join("missing-qwen-python");
+    std::fs::write(&input, "CHAPTER ONE\nA short test sentence.").expect("fixture");
+
+    Command::cargo_bin("kokoro-book")
+        .expect("binary")
+        .arg(&input)
+        .args(["--provider", "qwen", "--output"])
+        .arg(&output)
+        .env("KOKORO_BOOK_QWEN_PYTHON", &missing_python)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Qwen Python runtime not found"))
+        .stderr(predicate::str::contains("KOKORO_BOOK_QWEN_PYTHON"));
 }
 
 #[test]
@@ -65,6 +108,54 @@ fn inspect_txt_reports_semantic_sections_without_loading_a_model() {
         .stdout(predicate::str::contains("Narrated words:"));
 
     assert!(!cache.exists());
+}
+
+#[test]
+fn preflight_writes_tts_ready_artifacts_without_loading_a_model() {
+    let temp = tempdir().expect("temp dir");
+    let input = temp.path().join("tiny-book.txt");
+    let prepared = temp.path().join("prepared");
+    let cache = temp.path().join("cache");
+    std::fs::write(&input, "CHAPTER ONE\nWritten and certain.\n").expect("fixture");
+
+    Command::cargo_bin("kokoro-book")
+        .expect("binary")
+        .args([
+            "preflight",
+            input.to_str().expect("input path"),
+            "--output",
+            prepared.to_str().expect("prepared path"),
+            "--format",
+            "text",
+        ])
+        .env("KOKORO_BOOK_CACHE_DIR", &cache)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Preflight complete"))
+        .stdout(predicate::str::contains("Blocking errors: 0"));
+
+    assert!(!cache.exists());
+    assert!(prepared.join("tiny-book.preflight.json").is_file());
+    assert!(prepared.join("tiny-book.narration.jsonl").is_file());
+    assert!(prepared.join("tiny-book.pronunciations.txt").is_file());
+    assert!(prepared.join("chapters").is_dir());
+    let report: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(prepared.join("tiny-book.preflight.json")).expect("report"),
+    )
+    .expect("json report");
+    assert_eq!(report["normalization_version"], 1);
+    assert!(report["automatic_repairs"].as_u64().unwrap_or_default() > 0);
+    let narration =
+        std::fs::read_to_string(prepared.join("tiny-book.narration.jsonl")).expect("narration");
+    let unit = narration
+        .lines()
+        .nth(1)
+        .and_then(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .expect("prepared unit");
+    assert!(unit["id"].as_str().is_some());
+    assert_eq!(unit["status"], "ready");
+    assert!(unit["original_text"].as_str().is_some());
+    assert!(unit["tts_text"].as_str().is_some());
 }
 
 #[test]

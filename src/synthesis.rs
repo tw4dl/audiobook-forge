@@ -13,6 +13,7 @@ use tempfile::NamedTempFile;
 use crate::book::{SourcePosition, SourceRange};
 use crate::chunk::chunk_text;
 use crate::narration::{NarrationPlan, PlannedCue, PlannedPage};
+use crate::preflight::PreparedNarration;
 use crate::timeline::{AudioCue, AudioTimeline, CueKind, TimingGranularity};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,6 +31,8 @@ pub struct TtsProviderIdentity {
 pub struct TtsRequest {
     pub text: String,
     pub speed: f32,
+    /// Validated Kokoro phoneme chunks from preflight, when available.
+    pub phoneme_chunks: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -38,8 +41,34 @@ pub struct TtsAudio {
     pub sample_rate: u32,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PhonemeNormalizationReport {
+    pub automatic_repairs: usize,
+    pub syllabic_consonant: usize,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TtsProviderDiagnostics {
+    pub phoneme_normalization: PhonemeNormalizationReport,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TtsInputMode {
+    #[default]
+    RawText,
+    PreparedPhonemes,
+}
+
 pub trait TtsProvider {
     fn identity(&self) -> &TtsProviderIdentity;
+
+    fn input_mode(&self) -> TtsInputMode {
+        TtsInputMode::RawText
+    }
+
+    fn diagnostics(&self) -> TtsProviderDiagnostics {
+        TtsProviderDiagnostics::default()
+    }
 
     /// Synthesize one provider-sized request.
     ///
@@ -54,6 +83,7 @@ pub struct SynthesisSettings {
     pub speed: f32,
     pub pause_ms: u32,
     pub max_retries: usize,
+    pub prepared: Option<PreparedNarration>,
 }
 
 impl Default for SynthesisSettings {
@@ -62,6 +92,7 @@ impl Default for SynthesisSettings {
             speed: 1.0,
             pause_ms: 120,
             max_retries: 2,
+            prepared: None,
         }
     }
 }
@@ -90,6 +121,7 @@ pub struct SynthesisResult {
     pub cache_hits: usize,
     pub generated_chunks: usize,
     pub sample_rate: u32,
+    pub diagnostics: TtsProviderDiagnostics,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -161,6 +193,7 @@ impl SegmentCache {
 /// # Errors
 ///
 /// Returns an error for invalid settings, provider failure, PCM, or cache I/O.
+#[allow(clippy::too_many_lines)]
 pub fn synthesize_plan<P: TtsProvider>(
     plan: &NarrationPlan,
     provider: &mut P,
@@ -169,6 +202,8 @@ pub fn synthesize_plan<P: TtsProvider>(
 ) -> Result<SynthesisResult> {
     validate_settings(plan, provider.identity(), settings)?;
     let identity = provider.identity().clone();
+    let input_mode = provider.input_mode();
+    validate_prepared(plan, &identity, input_mode, settings.prepared.as_ref())?;
     let mut rendered_units = Vec::with_capacity(plan.units.len());
     let mut unit_bounds = Vec::with_capacity(plan.units.len());
     let mut cursor = 0_u64;
@@ -182,11 +217,37 @@ pub fn synthesize_plan<P: TtsProvider>(
 
     for (unit_index, unit) in plan.units.iter().enumerate() {
         let mut chunks = Vec::new();
-        for text in chunk_text(&unit.text, identity.max_characters)? {
+        let requests = if let Some(prepared) = settings.prepared.as_ref() {
+            let prepared_unit = prepared
+                .units
+                .iter()
+                .find(|candidate| candidate.unit_id == unit.id)
+                .context("prepared narration is missing a plan unit")?;
+            match input_mode {
+                TtsInputMode::RawText => {
+                    chunk_text(&prepared_unit.tts_text, identity.max_characters)?
+                        .into_iter()
+                        .map(|text| (text, None))
+                        .collect::<Vec<_>>()
+                }
+                TtsInputMode::PreparedPhonemes => prepared_unit
+                    .phoneme_chunks
+                    .iter()
+                    .map(|phonemes| (prepared_unit.tts_text.clone(), Some(vec![phonemes.clone()])))
+                    .collect::<Vec<_>>(),
+            }
+        } else {
+            chunk_text(&unit.text, identity.max_characters)?
+                .into_iter()
+                .map(|text| (text, None))
+                .collect::<Vec<_>>()
+        };
+        for (text, phoneme_chunks) in requests {
             provider_chunks += 1;
             let request = TtsRequest {
                 text,
                 speed: settings.speed,
+                phoneme_chunks,
             };
             let key = cache_key(&identity, &request);
             let cached = if let Some(cached) = cache.load(&key) {
@@ -233,6 +294,15 @@ pub fn synthesize_plan<P: TtsProvider>(
     }
 
     let timeline = build_timeline(plan, &unit_bounds, cursor, identity.sample_rate);
+    let mut diagnostics = provider.diagnostics();
+    if let Some(prepared) = settings.prepared.as_ref() {
+        for unit in &prepared.units {
+            diagnostics.phoneme_normalization.automatic_repairs +=
+                unit.phoneme_normalization.automatic_repairs;
+            diagnostics.phoneme_normalization.syllabic_consonant +=
+                unit.phoneme_normalization.syllabic_consonant;
+        }
+    }
     Ok(SynthesisResult {
         timeline,
         rendered_units,
@@ -240,6 +310,7 @@ pub fn synthesize_plan<P: TtsProvider>(
         cache_hits,
         generated_chunks,
         sample_rate: identity.sample_rate,
+        diagnostics,
     })
 }
 
@@ -262,6 +333,39 @@ fn validate_settings(
     }
     if identity.sample_rate == 0 {
         bail!("TTS provider sample rate must be greater than zero");
+    }
+    Ok(())
+}
+
+fn validate_prepared(
+    plan: &NarrationPlan,
+    identity: &TtsProviderIdentity,
+    input_mode: TtsInputMode,
+    prepared: Option<&PreparedNarration>,
+) -> Result<()> {
+    let Some(prepared) = prepared else {
+        return Ok(());
+    };
+    if !prepared.complete {
+        bail!("prepared narration contains unresolved blocking issues");
+    }
+    if input_mode == TtsInputMode::PreparedPhonemes
+        && prepared.provider_configuration_hash != identity.configuration_hash
+    {
+        bail!("prepared narration provider configuration does not match this build");
+    }
+    if prepared.units.len() != plan.units.len()
+        || prepared
+            .units
+            .iter()
+            .zip(&plan.units)
+            .any(|(prepared, unit)| {
+                prepared.status != "ready"
+                    || prepared.unit_id != unit.id
+                    || prepared.tts_text != unit.text
+            })
+    {
+        bail!("prepared narration does not match the current narration plan");
     }
     Ok(())
 }
@@ -316,6 +420,13 @@ fn cache_key(identity: &TtsProviderIdentity, request: &TtsRequest) -> String {
     ] {
         digest.update(value.as_bytes());
         digest.update([0]);
+    }
+    if let Some(phoneme_chunks) = request.phoneme_chunks.as_ref() {
+        digest.update(b"prepared\0");
+        for chunk in phoneme_chunks {
+            digest.update(chunk.as_bytes());
+            digest.update([0]);
+        }
     }
     digest.update(request.speed.to_bits().to_le_bytes());
     digest.update(identity.sample_rate.to_le_bytes());
@@ -479,6 +590,7 @@ fn float_to_i16(sample: f32) -> i16 {
 #[derive(Debug, Clone)]
 pub struct MockTtsProvider {
     identity: TtsProviderIdentity,
+    input_mode: TtsInputMode,
     requests: Vec<TtsRequest>,
     fail_on_request: Option<usize>,
 }
@@ -496,9 +608,22 @@ impl MockTtsProvider {
                 max_characters,
                 sample_rate,
             },
+            input_mode: TtsInputMode::RawText,
             requests: Vec::new(),
             fail_on_request: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_provider(mut self, provider: &str) -> Self {
+        provider.clone_into(&mut self.identity.provider);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_input_mode(mut self, input_mode: TtsInputMode) -> Self {
+        self.input_mode = input_mode;
+        self
     }
 
     pub fn fail_on_request(&mut self, request_number: usize) {
@@ -514,6 +639,10 @@ impl MockTtsProvider {
 impl TtsProvider for MockTtsProvider {
     fn identity(&self) -> &TtsProviderIdentity {
         &self.identity
+    }
+
+    fn input_mode(&self) -> TtsInputMode {
+        self.input_mode
     }
 
     fn synthesize(&mut self, request: &TtsRequest) -> Result<TtsAudio> {

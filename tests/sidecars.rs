@@ -94,6 +94,12 @@ fn writes_reproducible_manifest_inputs_without_credentials() {
     assert_eq!(json["narration"]["configuration_hash"], "mock-v1");
     assert_eq!(json["narration"]["pause_ms"], 120);
     assert_eq!(json["narration"]["max_retries"], 2);
+    assert_eq!(json["narration"]["phoneme_normalization_version"], 1);
+    assert_eq!(json["narration"]["automatic_repairs"]["count"], 0);
+    assert_eq!(
+        json["narration"]["automatic_repairs"]["by_rule"]["syllabic_consonant"],
+        0
+    );
     assert_eq!(
         json["narration"]["pronunciation_overrides"][0],
         "Example=ɪɡzˈæmpəl"

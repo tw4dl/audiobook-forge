@@ -96,6 +96,7 @@ fn build_options(output_dir: std::path::PathBuf, base_name: &str) -> AudiobookBu
             speed: 1.0,
             pause_ms: 20,
             max_retries: 1,
+            prepared: None,
         },
         pronunciation_overrides: vec!["Elena=ɪlˈeɪnə".to_owned()],
         build_timestamp_unix_seconds: 1_786_406_400,

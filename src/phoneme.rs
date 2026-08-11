@@ -7,7 +7,7 @@ use anyhow::{Context, Result, bail};
 use misaki_rs::lexicon::PhonemeEntry;
 use misaki_rs::{G2P, Language};
 
-use crate::vocab;
+use crate::vocab::{self, NormalizedPhonemes};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Pronunciation {
@@ -33,7 +33,8 @@ impl FromStr for Pronunciation {
         if word.is_empty() || word.chars().any(char::is_whitespace) || phonemes.is_empty() {
             bail!("pronunciation must use WORD=IPA with one non-empty word");
         }
-        if !vocab::supports(phonemes) {
+        let normalized = vocab::normalize_for_kokoro(phonemes);
+        if !vocab::supports(&normalized.phonemes) {
             bail!("pronunciation for '{word}' contains unsupported phoneme characters");
         }
         Ok(Self {
@@ -69,7 +70,7 @@ impl Phonemizer {
     /// # Errors
     ///
     /// Returns an error when lean Misaki cannot produce usable phonemes.
-    pub(crate) fn phonemize(&self, text: &str) -> Result<String> {
+    pub(crate) fn phonemize(&self, text: &str) -> Result<NormalizedPhonemes> {
         let text = text.replace(['‘', '’'], "'");
         let (phonemes, _) = self
             .inner
@@ -78,7 +79,7 @@ impl Phonemizer {
         if phonemes.contains('❓') {
             bail!("Misaki could not pronounce part of the text; add --pronunciation WORD=IPA");
         }
-        Ok(phonemes)
+        Ok(vocab::normalize_for_kokoro(&phonemes))
     }
 }
 
@@ -131,7 +132,7 @@ mod tests {
 
         let phonemes = phonemizer.phonemize("Cormer").expect("phonemes");
 
-        assert_eq!(phonemes.trim(), "kˈɔɹmɚ");
+        assert_eq!(phonemes.phonemes.trim(), "kˈɔɹmɚ");
     }
 
     #[test]
@@ -144,8 +145,8 @@ mod tests {
             .phonemize("Elena")
             .expect("corrected phonemes");
 
-        assert_ne!(baseline.trim(), "ɪlˈeɪnə");
-        assert_eq!(corrected.trim(), "ɪlˈeɪnə");
+        assert_ne!(baseline.phonemes.trim(), "ɪlˈeɪnə");
+        assert_eq!(corrected.phonemes.trim(), "ɪlˈeɪnə");
     }
 
     #[test]
@@ -155,5 +156,32 @@ mod tests {
         Phonemizer::new(false, &[])
             .phonemize(text)
             .expect("book typography must phonemize");
+    }
+
+    #[test]
+    fn repairs_common_syllabic_consonants_after_g2p() {
+        let phonemizer = Phonemizer::new(false, &[]);
+
+        for word in [
+            "written",
+            "certain",
+            "frightened",
+            "heightened",
+            "enlightening",
+        ] {
+            let normalized = phonemizer.phonemize(word).expect("phonemes");
+            assert!(!normalized.phonemes.contains('\u{0329}'), "{word}");
+            assert!(normalized.stats.automatic_repairs > 0, "{word}");
+        }
+    }
+
+    #[test]
+    fn explicit_pronunciation_is_normalized_before_validation() {
+        let pronunciation: Pronunciation = "written=ɹˈɪʔn̩".parse().expect("override");
+        let phonemizer = Phonemizer::new(false, &[pronunciation]);
+        let normalized = phonemizer.phonemize("written").expect("phonemes");
+
+        assert_eq!(normalized.phonemes.trim(), "ɹˈɪʔən");
+        assert_eq!(normalized.stats.automatic_repairs, 1);
     }
 }

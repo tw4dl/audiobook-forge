@@ -15,6 +15,7 @@ use crate::m4b::ChapterPolicy;
 use crate::narration::{FootnoteMode, NarrationPlan};
 use crate::synthesis::{SynthesisResult, TtsProviderIdentity};
 use crate::timeline::{AudioCue, AudioTimeline, CueKind};
+use crate::vocab::PHONEME_NORMALIZATION_VERSION;
 
 pub const AUDIONAV_SCHEMA_VERSION: u32 = 1;
 pub const MANIFEST_SCHEMA_VERSION: u32 = 1;
@@ -179,6 +180,19 @@ pub fn write_manifest(
             pause_ms: options.pause_ms,
             max_retries: options.max_retries,
             pronunciation_overrides: options.pronunciation_overrides.clone(),
+            phoneme_normalization_version: PHONEME_NORMALIZATION_VERSION,
+            automatic_repairs: AutomaticRepairsInfo {
+                count: synthesis
+                    .diagnostics
+                    .phoneme_normalization
+                    .automatic_repairs,
+                by_rule: AutomaticRepairRules {
+                    syllabic_consonant: synthesis
+                        .diagnostics
+                        .phoneme_normalization
+                        .syllabic_consonant,
+                },
+            },
             provider_character_limit: options.provider.max_characters,
             sample_rate: options.provider.sample_rate,
         },
@@ -371,8 +385,21 @@ struct NarrationInfo {
     pause_ms: u32,
     max_retries: usize,
     pronunciation_overrides: Vec<String>,
+    phoneme_normalization_version: u32,
+    automatic_repairs: AutomaticRepairsInfo,
     provider_character_limit: usize,
     sample_rate: u32,
+}
+
+#[derive(Serialize)]
+struct AutomaticRepairsInfo {
+    count: usize,
+    by_rule: AutomaticRepairRules,
+}
+
+#[derive(Serialize)]
+struct AutomaticRepairRules {
+    syllabic_consonant: usize,
 }
 
 #[derive(Serialize)]

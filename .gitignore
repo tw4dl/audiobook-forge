@@ -1,4 +1,9 @@
 /target/
 *.wav
 *.part
+*.log
+.lavish/
+.env
+.env.*
+!.env.example
 .DS_Store
