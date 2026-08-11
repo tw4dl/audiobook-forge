@@ -10,9 +10,9 @@ use html5ever::tokenizer::{
 };
 use html5ever::{ParseOpts, parse_document};
 
-const MAX_HTML_NODES: usize = 100_000;
-const MAX_HTML_DEPTH: usize = 128;
-const MAX_HTML_ATTRIBUTES: usize = 4_096;
+pub(super) const MAX_HTML_NODES: usize = 100_000;
+pub(super) const MAX_HTML_DEPTH: usize = 128;
+pub(super) const MAX_HTML_ATTRIBUTES: usize = 4_096;
 
 pub(super) fn standardize_html(source: &str) -> Result<(String, usize)> {
     enforce_raw_attribute_limit(source)?;
@@ -119,6 +119,11 @@ fn enforce_token_limit(source: &str) -> Result<()> {
         anyhow::bail!("HTML exceeds {MAX_HTML_NODES} parser resource units");
     }
     Ok(())
+}
+
+pub(super) fn validate_input_bounds(source: &str) -> Result<()> {
+    enforce_raw_attribute_limit(source)?;
+    enforce_token_limit(source)
 }
 
 fn enforce_raw_attribute_limit(source: &str) -> Result<()> {
@@ -317,6 +322,42 @@ pub(super) fn tokenize(source: &str) -> (Vec<Node>, usize) {
     (build_tree(events), parse_errors)
 }
 
+pub(super) fn tokenize_xhtml(source: &str) -> Result<(Vec<Node>, usize)> {
+    enforce_raw_attribute_limit(source)?;
+    enforce_token_limit(source)?;
+    let (nodes, parse_errors) = tokenize(source);
+    validate_node_bounds(&nodes)?;
+    Ok((nodes, parse_errors))
+}
+
+fn validate_node_bounds(nodes: &[Node]) -> Result<()> {
+    let mut stack = nodes
+        .iter()
+        .rev()
+        .map(|node| (node, 1_usize))
+        .collect::<Vec<_>>();
+    let mut node_count = 0_usize;
+    while let Some((node, depth)) = stack.pop() {
+        node_count += 1;
+        if node_count > MAX_HTML_NODES {
+            anyhow::bail!("HTML contains more than {MAX_HTML_NODES} nodes");
+        }
+        if depth > MAX_HTML_DEPTH {
+            anyhow::bail!("HTML nesting exceeds {MAX_HTML_DEPTH} levels");
+        }
+        if let Node::Element(element) = node {
+            stack.extend(
+                element
+                    .children
+                    .iter()
+                    .rev()
+                    .map(|child| (child, depth + 1)),
+            );
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 pub(super) enum Node {
     Element(Element),
@@ -328,6 +369,7 @@ pub(super) struct Element {
     pub(super) name: String,
     pub(super) attrs: Vec<(String, String)>,
     pub(super) children: Vec<Node>,
+    pub(super) source_offset: Option<usize>,
 }
 
 fn build_tree(events: Vec<Event>) -> Vec<Node> {
@@ -346,6 +388,7 @@ fn build_tree(events: Vec<Event>) -> Vec<Node> {
                     name,
                     attrs,
                     children: Vec::new(),
+                    source_offset: None,
                 };
                 if self_closing || is_void {
                     append_node(&mut roots, &mut stack, Node::Element(element));

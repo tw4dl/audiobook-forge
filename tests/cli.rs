@@ -2,6 +2,10 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::tempdir;
 
+#[allow(dead_code)]
+#[path = "support/structured_epub.rs"]
+mod structured_epub;
+
 #[test]
 fn help_describes_conversion_and_inspection() {
     Command::cargo_bin("kokoro-book")
@@ -52,6 +56,29 @@ fn inspect_txt_reports_semantic_sections_without_loading_a_model() {
         .stdout(predicate::str::contains("Narrated words:"));
 
     assert!(!cache.exists());
+}
+
+#[test]
+fn inspect_epub_reports_book_metadata_and_navigation_counts() {
+    let temp = tempdir().expect("temp dir");
+    let input = temp.path().join("structured.epub");
+    structured_epub::write_structured_epub3(&input);
+
+    Command::cargo_bin("kokoro-book")
+        .expect("binary")
+        .arg("inspect")
+        .arg(&input)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Format: EPUB 3.0"))
+        .stdout(predicate::str::contains(
+            "Authors: Ada Reader; Grace Listener",
+        ))
+        .stdout(predicate::str::contains("Language: en-US"))
+        .stdout(predicate::str::contains(
+            "Cover: /EPUB/cover.jpg (image/jpeg)",
+        ))
+        .stdout(predicate::str::contains("Pages: 2"));
 }
 
 #[test]

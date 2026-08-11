@@ -1,8 +1,11 @@
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::io::{Cursor, Read};
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+use quick_xml::Reader as XmlReader;
+use quick_xml::events::Event as XmlEvent;
 use zip8::ZipArchive;
 
 use super::protection::{font_obfuscation_references, validate_font_references};
@@ -14,6 +17,7 @@ const MAX_EXPANDED_TOTAL_BYTES: u64 = 512 * MIB;
 const END_OF_CENTRAL_DIRECTORY_BYTES: usize = 22;
 const MAX_ZIP_COMMENT_BYTES: usize = u16::MAX as usize;
 const CENTRAL_DIRECTORY_HEADER_BYTES: usize = 46;
+const MAX_MARKUP_DEPTH: usize = 128;
 
 pub(super) fn validate_archive(bytes: &[u8], path: &Path) -> Result<()> {
     validate_declared_entry_count(bytes, path)?;
@@ -56,8 +60,7 @@ pub(super) fn validate_archive(bytes: &[u8], path: &Path) -> Result<()> {
             .with_context(|| format!("failed to open EPUB archive entry {index}"))?;
         let mut actual_entry_size = 0_u64;
         let mut buffer = [0_u8; 16 * 1_024];
-        let mut manifest_bytes = is_encryption_manifest.then(Vec::new);
-        let mut container_bytes = is_container_document.then(Vec::new);
+        let mut expanded_bytes = Vec::new();
         loop {
             let read = entry
                 .read(&mut buffer)
@@ -78,24 +81,21 @@ pub(super) fn validate_archive(bytes: &[u8], path: &Path) -> Result<()> {
             if actual_total > MAX_EXPANDED_TOTAL_BYTES {
                 bail!("EPUB exceeds 512 MiB cumulative expanded limit");
             }
-            if let Some(manifest) = &mut manifest_bytes {
-                manifest.extend_from_slice(&buffer[..read]);
-            }
-            if let Some(container) = &mut container_bytes {
-                container.extend_from_slice(&buffer[..read]);
-            }
+            expanded_bytes.extend_from_slice(&buffer[..read]);
         }
 
-        if let Some(manifest) = manifest_bytes {
-            let references = font_obfuscation_references(&manifest)?;
+        if is_markup_entry(&entry_name) || looks_like_markup(&expanded_bytes) {
+            validate_markup_depth(&expanded_bytes, &entry_name)?;
+        }
+
+        if is_encryption_manifest {
+            let references = font_obfuscation_references(&expanded_bytes)?;
             if font_references.len().saturating_add(references.len()) > MAX_EPUB_ENTRIES {
                 bail!("EPUB encryption manifest contains too many resources");
             }
             font_references.extend(references);
         }
-        if let Some(container) = container_bytes
-            && container_document.replace(container).is_some()
-        {
+        if is_container_document && container_document.replace(expanded_bytes).is_some() {
             bail!("EPUB contains duplicate container metadata");
         }
     }
@@ -107,6 +107,71 @@ pub(super) fn validate_archive(bytes: &[u8], path: &Path) -> Result<()> {
         validate_font_references(&mut archive, container, &archive_names, &font_references)?;
     }
     Ok(())
+}
+
+fn is_markup_entry(entry_name: &str) -> bool {
+    let extension = entry_name.rsplit_once('.').map(|(_, extension)| extension);
+    extension.is_some_and(|extension| {
+        ["xhtml", "html", "htm", "ncx", "opf", "xml"]
+            .iter()
+            .any(|expected| extension.eq_ignore_ascii_case(expected))
+    })
+}
+
+fn looks_like_markup(bytes: &[u8]) -> bool {
+    if bytes.starts_with(b"\xff\xfe") || bytes.starts_with(b"\xfe\xff") {
+        return true;
+    }
+    let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
+    bytes
+        .iter()
+        .copied()
+        .find(|byte| !matches!(byte, b'\t' | b'\n' | b'\r' | b' '))
+        == Some(b'<')
+}
+
+fn validate_markup_depth(markup: &[u8], entry_name: &str) -> Result<()> {
+    let markup = markup_as_utf8(markup, entry_name)?;
+    let mut reader = XmlReader::from_reader(markup.as_ref());
+    let mut depth = 0_usize;
+    loop {
+        match reader.read_event() {
+            Ok(XmlEvent::Start(_)) => {
+                depth = depth.saturating_add(1);
+                if depth > MAX_MARKUP_DEPTH {
+                    bail!("EPUB markup {entry_name} nesting exceeds {MAX_MARKUP_DEPTH} levels");
+                }
+            }
+            Ok(XmlEvent::End(_)) => depth = depth.saturating_sub(1),
+            Ok(XmlEvent::Eof) | Err(_) => return Ok(()),
+            Ok(_) => {}
+        }
+    }
+}
+
+fn markup_as_utf8<'a>(markup: &'a [u8], entry_name: &str) -> Result<Cow<'a, [u8]>> {
+    let (little_endian, body) = if let Some(body) = markup.strip_prefix(b"\xff\xfe") {
+        (true, body)
+    } else if let Some(body) = markup.strip_prefix(b"\xfe\xff") {
+        (false, body)
+    } else {
+        return Ok(Cow::Borrowed(markup));
+    };
+    let (chunks, remainder) = body.as_chunks::<2>();
+    if !remainder.is_empty() {
+        bail!("EPUB markup {entry_name} contains invalid UTF-16");
+    }
+    let units = chunks.iter().copied().map(|bytes| {
+        if little_endian {
+            u16::from_le_bytes(bytes)
+        } else {
+            u16::from_be_bytes(bytes)
+        }
+    });
+    let decoded = char::decode_utf16(units)
+        .collect::<std::result::Result<String, _>>()
+        .with_context(|| format!("EPUB markup {entry_name} contains invalid UTF-16"))?;
+    Ok(Cow::Owned(decoded.into_bytes()))
 }
 
 fn validate_entry_metadata<R: Read>(entry: &zip8::read::ZipFile<'_, R>) -> Result<()> {

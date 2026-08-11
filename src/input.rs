@@ -146,11 +146,94 @@ pub(super) fn heading_kind(heading: &str) -> SectionKind {
     }
 }
 
+pub(super) fn semantic_section_kind(tokens: &str) -> Option<SectionKind> {
+    let contains = |expected: &[&str]| {
+        tokens
+            .split_ascii_whitespace()
+            .map(|token| token.strip_prefix("doc-").unwrap_or(token))
+            .any(|token| expected.contains(&token))
+    };
+    if contains(&["part", "volume"]) {
+        Some(SectionKind::Part)
+    } else if contains(&["chapter"]) {
+        Some(SectionKind::Chapter)
+    } else if contains(&["appendix"]) {
+        Some(SectionKind::Appendix)
+    } else if contains(&["footnotes", "endnotes"]) {
+        Some(SectionKind::Notes)
+    } else if contains(&["bibliography"]) {
+        Some(SectionKind::Bibliography)
+    } else if contains(&["index"]) {
+        Some(SectionKind::Index)
+    } else if contains(&["section", "subchapter"]) {
+        Some(SectionKind::Section)
+    } else if contains(&[
+        "frontmatter",
+        "titlepage",
+        "title-page",
+        "copyright-page",
+        "copyright",
+        "dedication",
+        "epigraph",
+        "foreword",
+        "preface",
+        "introduction",
+        "prologue",
+    ]) {
+        Some(SectionKind::FrontMatter)
+    } else if contains(&[
+        "backmatter",
+        "afterword",
+        "acknowledgments",
+        "colophon",
+        "epilogue",
+    ]) {
+        Some(SectionKind::BackMatter)
+    } else if contains(&["bodymatter", "text"]) {
+        Some(SectionKind::BodyMatter)
+    } else {
+        None
+    }
+}
+
 pub(super) fn text_source_range(source_id: &str, start: usize, end: usize) -> SourceRange {
     SourceRange {
         source_id: source_id.to_owned(),
         start: SourcePosition::Text { byte_offset: start },
         end: SourcePosition::Text { byte_offset: end },
+    }
+}
+
+pub(super) fn epub_source_position(resource: &str, fragment: Option<&str>) -> SourcePosition {
+    epub_source_position_at(resource, fragment, None)
+}
+
+pub(super) fn epub_source_position_at(
+    resource: &str,
+    fragment: Option<&str>,
+    character_offset: Option<usize>,
+) -> SourcePosition {
+    SourcePosition::Epub {
+        resource: resource.to_owned(),
+        fragment: fragment.map(str::to_owned),
+        character_offset,
+    }
+}
+
+pub(super) fn epub_source_range(resource: &str, fragment: Option<&str>) -> SourceRange {
+    epub_source_range_at(resource, fragment, None)
+}
+
+pub(super) fn epub_source_range_at(
+    resource: &str,
+    fragment: Option<&str>,
+    character_offset: Option<usize>,
+) -> SourceRange {
+    let position = epub_source_position_at(resource, fragment, character_offset);
+    SourceRange {
+        source_id: resource.to_owned(),
+        start: position.clone(),
+        end: position,
     }
 }
 
@@ -179,10 +262,8 @@ pub(super) fn source_lines(text: &str) -> Vec<(usize, usize, &str)> {
 
 pub(super) fn section_text(section: &Section) -> String {
     let mut parts = Vec::new();
-    if matches!(
-        section.kind,
-        SectionKind::Part | SectionKind::Chapter | SectionKind::Section
-    ) && let Some(title) = &section.title
+    if !matches!(section.kind, SectionKind::Book | SectionKind::BodyMatter)
+        && let Some(title) = &section.title
     {
         parts.push(title.clone());
     }
@@ -216,7 +297,9 @@ pub(super) fn normalize_text(text: &str) -> String {
 mod tests {
     use std::io::Cursor;
 
-    use super::read_at_most;
+    use crate::book::{Provenance, Section, SectionKind};
+
+    use super::{read_at_most, section_text, semantic_section_kind};
 
     #[test]
     fn bounded_reader_rejects_bytes_beyond_the_declared_limit() {
@@ -224,5 +307,37 @@ mod tests {
             .expect_err("reader must enforce the limit while reading");
 
         assert_eq!(error.to_string(), "input grew beyond its 5-byte limit");
+    }
+
+    #[test]
+    fn narration_keeps_titles_for_major_semantic_divisions() {
+        let mut book = Section::new(
+            "book",
+            SectionKind::Book,
+            Some("Wrapper Title".to_owned()),
+            0,
+            Provenance::Derived,
+        );
+        book.children.push(Section::new(
+            "appendix",
+            SectionKind::Appendix,
+            Some("Appendix A".to_owned()),
+            1,
+            Provenance::Authored,
+        ));
+
+        assert_eq!(section_text(&book), "Appendix A");
+    }
+
+    #[test]
+    fn semantic_section_kind_reads_token_lists_and_document_roles() {
+        assert_eq!(
+            semantic_section_kind("chapter custom:foo"),
+            Some(SectionKind::Chapter)
+        );
+        assert_eq!(
+            semantic_section_kind("bodymatter doc-chapter"),
+            Some(SectionKind::Chapter)
+        );
     }
 }

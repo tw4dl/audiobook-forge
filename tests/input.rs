@@ -103,6 +103,24 @@ fn html_tree_builder_honors_optional_paragraph_end_tags() {
 }
 
 #[test]
+fn standalone_xhtml_preserves_xml_cdata_and_self_closing_elements() {
+    let temp = tempdir().expect("temp dir");
+    let path = temp.path().join("structured.xhtml");
+    std::fs::write(
+        &path,
+        r#"<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><span id="marker"/><h1>Chapter One</h1><p><![CDATA[Visible XML text.]]></p></body></html>"#,
+    )
+    .expect("fixture");
+
+    let book = read_book(&path).expect("valid XHTML");
+
+    assert_eq!(book.root.children[0].title.as_deref(), Some("Chapter One"));
+    assert!(
+        matches!(&book.root.children[0].blocks[0], Block::Paragraph(block) if block.text == "Visible XML text.")
+    );
+}
+
+#[test]
 fn maps_markdown_headings_and_paragraphs_to_source_offsets() {
     let temp = tempdir().expect("temp dir");
     let path = temp.path().join("mapped.md");

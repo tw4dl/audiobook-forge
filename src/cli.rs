@@ -210,7 +210,35 @@ fn print_inspection(book: &crate::book::CanonicalBook, tree: bool) {
         "Title: {}",
         terminal_text(book.metadata.title.as_deref().unwrap_or("Untitled"))
     );
-    println!("Format: {}", book.source.format);
+    if let Some(version) = book.source.format_version.as_deref() {
+        println!("Format: {} {}", book.source.format, terminal_text(version));
+    } else {
+        println!("Format: {}", book.source.format);
+    }
+    if !book.metadata.authors.is_empty() {
+        let label = if book.metadata.authors.len() == 1 {
+            "Author"
+        } else {
+            "Authors"
+        };
+        println!(
+            "{label}: {}",
+            terminal_text(&book.metadata.authors.join("; "))
+        );
+    }
+    if let Some(language) = book.metadata.language.as_deref() {
+        println!("Language: {}", terminal_text(language));
+    }
+    if let Some(cover) = book.metadata.cover.as_ref() {
+        println!(
+            "Cover: {} ({})",
+            terminal_text(&cover.source_id),
+            terminal_text(&cover.media_type)
+        );
+    }
+    if !book.pages.is_empty() {
+        println!("Pages: {}", book.pages.len());
+    }
     for warning in &book.warnings {
         println!("WARN: {}", terminal_text(warning));
     }

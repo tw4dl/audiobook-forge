@@ -47,8 +47,10 @@ impl BookImporter for MarkdownImporter {
             source: SourceDocument {
                 path,
                 format: SourceFormat::Markdown,
+                format_version: None,
             },
             text,
+            pages: Vec::new(),
             warnings: Vec::new(),
         })
     }

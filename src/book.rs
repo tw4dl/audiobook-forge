@@ -11,6 +11,8 @@ pub struct CanonicalBook {
     pub source: SourceDocument,
     /// Normalized text consumed by the current synthesis pipeline.
     pub text: String,
+    /// Authored page markers. Reflowable sources leave this empty when no page list exists.
+    pub pages: Vec<PageMarker>,
     pub warnings: Vec<String>,
 }
 
@@ -26,12 +28,21 @@ pub struct BookMetadata {
     pub title: Option<String>,
     pub authors: Vec<String>,
     pub language: Option<String>,
+    pub cover: Option<BookAsset>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BookAsset {
+    pub source_id: String,
+    pub media_type: String,
+    pub bytes: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceDocument {
     pub path: PathBuf,
     pub format: SourceFormat,
+    pub format_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,10 +122,16 @@ pub enum Provenance {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SectionKind {
     Book,
+    FrontMatter,
     BodyMatter,
     Part,
     Chapter,
     Section,
+    Appendix,
+    Notes,
+    Bibliography,
+    Index,
+    BackMatter,
     Other,
 }
 
@@ -124,6 +141,7 @@ pub enum Block {
     Quote(TextBlock),
     List(ListBlock),
     Figure(FigureBlock),
+    Footnote(TextBlock),
     Aside(TextBlock),
     Navigation(TextBlock),
     Code(TextBlock),
@@ -135,6 +153,7 @@ impl Block {
         match self {
             Self::Paragraph(block)
             | Self::Quote(block)
+            | Self::Footnote(block)
             | Self::Aside(block)
             | Self::Navigation(block)
             | Self::Code(block) => &block.text,
@@ -176,6 +195,12 @@ pub struct SourceRange {
     pub source_id: String,
     pub start: SourcePosition,
     pub end: SourcePosition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PageMarker {
+    pub label: String,
+    pub position: SourcePosition,
 }
 
 /// A source position that keeps format-specific coordinates behind one API.

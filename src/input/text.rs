@@ -134,8 +134,10 @@ fn finish_book(path: &Path, title: String, mut root: Section) -> CanonicalBook {
         source: SourceDocument {
             path: path.to_path_buf(),
             format: SourceFormat::Text,
+            format_version: None,
         },
         text,
+        pages: Vec::new(),
         warnings,
     }
 }
