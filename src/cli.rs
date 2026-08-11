@@ -4,8 +4,10 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use anyhow::{Context, Result, bail};
+use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 
+use crate::book::Section;
 use crate::input::read_book;
 use crate::model::{default_cache_dir, ensure_model};
 use crate::phoneme::Pronunciation;
@@ -20,11 +22,11 @@ use crate::worker::{WorkerLaunch, WorkerLimits, run_mlx_worker};
 #[command(
     name = "kokoro-book",
     version,
-    about = "Turn an English EPUB or TXT file into a Kokoro audiobook",
+    about = "Turn an English ebook or document into a Kokoro audiobook",
     long_about = None
 )]
 struct Cli {
-    /// EPUB or TXT input file
+    /// EPUB, HTML, Markdown, or TXT input file
     #[arg(value_name = "INPUT")]
     input: Option<PathBuf>,
 
@@ -58,6 +60,17 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Inspect the imported title and semantic structure without synthesis
+    Inspect {
+        /// EPUB, HTML, Markdown, or TXT input file
+        #[arg(value_name = "INPUT")]
+        input: PathBuf,
+
+        /// Show the semantic navigation tree
+        #[arg(long)]
+        tree: bool,
+    },
+
     /// List English Kokoro preset voices
     Voices,
 
@@ -83,11 +96,33 @@ enum Command {
 ///
 /// Returns an error for invalid input, model setup, or synthesis output.
 pub fn run() -> Result<()> {
-    run_with(Cli::parse())
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+            ) =>
+        {
+            print!("{error}");
+            return Ok(());
+        }
+        Err(error) => {
+            let rendered = error.to_string();
+            let rendered = rendered.strip_prefix("error: ").unwrap_or(&rendered);
+            bail!(terminal_text(rendered));
+        }
+    };
+    run_with(cli)
 }
 
 fn run_with(cli: Cli) -> Result<()> {
     match &cli.command {
+        Some(Command::Inspect { input, tree }) => {
+            let book = read_book(input)?;
+            print_inspection(&book, *tree);
+            return Ok(());
+        }
         Some(Command::Voices) => {
             for voice in ENGLISH_VOICES {
                 let suffix = if voice.name == DEFAULT_VOICE {
@@ -123,6 +158,9 @@ fn run_with(cli: Cli) -> Result<()> {
         .input
         .context("missing INPUT; run `kokoro-book --help`")?;
     let book = read_book(&input)?;
+    for warning in &book.warnings {
+        eprintln!("WARN: {}", terminal_text(warning));
+    }
     let output = cli.output.unwrap_or_else(|| default_output(&input));
     if output
         .extension()
@@ -152,7 +190,7 @@ fn run_with(cli: Cli) -> Result<()> {
 
     eprintln!(
         "Created {} | {:.2}s audio | {:.2}s synthesis | RTF {:.3} | {:.3}s model load | {} chunks | {} requests | {} restarts | MLX peak {:.2} GiB | cache {} B | PCM peak {:.3}",
-        report.output.display(),
+        terminal_text(&report.output.display().to_string()),
         report.audio_seconds,
         report.synthesis_seconds,
         report.rtf,
@@ -165,6 +203,69 @@ fn run_with(cli: Cli) -> Result<()> {
         report.peak_amplitude,
     );
     Ok(())
+}
+
+fn print_inspection(book: &crate::book::CanonicalBook, tree: bool) {
+    println!(
+        "Title: {}",
+        terminal_text(book.metadata.title.as_deref().unwrap_or("Untitled"))
+    );
+    println!("Format: {}", book.source.format);
+    for warning in &book.warnings {
+        println!("WARN: {}", terminal_text(warning));
+    }
+    if tree {
+        println!();
+        print_tree(&book.root, 0);
+    } else {
+        println!();
+        println!("Sections:");
+        for (index, section) in book.root.children.iter().enumerate() {
+            println!(
+                "{index:02}  {}  {} words",
+                terminal_text(section.title.as_deref().unwrap_or("Untitled")),
+                section.word_count()
+            );
+        }
+    }
+    println!();
+    println!("Narrated words: {}", book.word_count());
+    println!("Warnings: {}", book.warnings.len());
+}
+
+fn print_tree(section: &Section, depth: usize) {
+    let indent = "  ".repeat(depth);
+    println!(
+        "{indent}{}",
+        terminal_text(section.title.as_deref().unwrap_or("Untitled"))
+    );
+    for child in &section.children {
+        print_tree(child, depth + 1);
+    }
+}
+
+/// Replace terminal control and bidirectional override characters in untrusted text.
+#[must_use]
+pub fn terminal_text(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| {
+            if character.is_control()
+                || matches!(
+                    character,
+                    '\u{061c}'
+                        | '\u{200e}'
+                        | '\u{200f}'
+                        | '\u{202a}'..='\u{202e}'
+                        | '\u{2066}'..='\u{2069}'
+                )
+            {
+                '\u{fffd}'
+            } else {
+                character
+            }
+        })
+        .collect()
 }
 
 #[allow(clippy::cast_precision_loss)]

@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 pub mod audio;
+pub mod book;
 pub mod chunk;
 pub mod cli;
 pub mod input;

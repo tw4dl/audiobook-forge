@@ -3,7 +3,7 @@ name = "kokoro-book"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
-description = "A small offline EPUB and text-to-audiobook CLI powered by Kokoro"
+description = "A small offline ebook-to-audiobook CLI powered by Kokoro"
 license = "Apache-2.0"
 repository = "https://github.com/tw4dl/kokoro-book"
 keywords = ["audiobook", "epub", "kokoro", "tts"]
@@ -17,14 +17,18 @@ anyhow = "1.0.102"
 clap = { version = "4.5.60", features = ["derive"] }
 directories = "6.0.0"
 hound = "3.5.1"
+html5ever = "0.39.0"
 html2text = "0.17.1"
 indicatif = "0.18.3"
 misaki-rs = { version = "0.3.0", default-features = false }
+pulldown-cmark = { version = "0.13.4", default-features = false }
+quick-xml = "0.41.0"
 rbook = { version = "0.7.10", default-features = false }
 sha2 = "0.10.9"
 tempfile = "3.23.0"
 thiserror = "2.0.17"
 ureq = { version = "2.12.1", default-features = false, features = ["tls"] }
+zip8 = { package = "zip", version = "8.6.0", default-features = false }
 
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
 mlx-memory-control = { version = "0.1.0", path = "crates/mlx-memory-control" }

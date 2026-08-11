@@ -42,6 +42,10 @@ If either file changes, the clarification stops matching and the audit fails or 
 | MLX C sources bundled by `mlx-sys` | Apple MLX native runtime | MIT | [`ml-explore/mlx`](https://github.com/ml-explore/mlx) |
 | `mach-sys` 0.5.4 | Mach memory APIs used by `mlx-rs` | GPL-3.0 OR Apache-2.0; this project uses Apache-2.0 | [`delta4chat/mach`](https://github.com/delta4chat/mach) |
 | `misaki-rs` 0.3.0 | English G2P | MIT | [`MicheleYin/misaki-rs`](https://github.com/MicheleYin/misaki-rs) |
+| `html5ever` 0.39.0 | Standards-based HTML tree construction | MIT OR Apache-2.0 | [`servo/html5ever`](https://github.com/servo/html5ever) |
+| `pulldown-cmark` 0.13.4 | CommonMark parsing and source offsets | MIT | [`pulldown-cmark/pulldown-cmark`](https://github.com/pulldown-cmark/pulldown-cmark) |
+| `quick-xml` 0.41.0 | EPUB encryption-manifest validation | MIT | [`tafia/quick-xml`](https://github.com/tafia/quick-xml) |
+| `zip` 8.6.0 | EPUB archive size and encryption preflight | MIT | [`zip-rs/zip2`](https://github.com/zip-rs/zip2) |
 | Original Misaki English lexicons and G2P data | Four embedded US/GB gold/silver dictionaries plus POS classes, tags, and weights carried by `misaki-rs` | Apache-2.0 | [`hexgrad/misaki`](https://github.com/hexgrad/misaki) |
 | `language-tokenizer` 0.1.0 | Transitive Misaki tokenization | WTFPL | [`savannstm/language-tokenizer`](https://github.com/savannstm/language-tokenizer/tree/86f2cbc67384d9913186c3ae0b3e862359349c31) |
 | `rbook` 0.7.10 | EPUB 2 and 3 reading | Apache-2.0 | [`DevinSterling/rbook`](https://github.com/DevinSterling/rbook) |

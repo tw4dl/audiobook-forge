@@ -1,6 +1,6 @@
 # kokoro-book
 
-A small offline CLI that turns an English EPUB or UTF-8 TXT file into a WAV audiobook with [Kokoro-82M-bf16](https://huggingface.co/mlx-community/Kokoro-82M-bf16).
+A small offline CLI that turns an English EPUB, HTML, Markdown, or UTF-8 TXT file into a WAV audiobook with [Kokoro-82M-bf16](https://huggingface.co/mlx-community/Kokoro-82M-bf16).
 
 One model. One MLX worker. Preset voices only. No Python, server, GUI, eSpeak, ONNX Runtime, or voice cloning.
 
@@ -24,12 +24,18 @@ The first conversion downloads one pinned 312 MiB BF16 Kokoro model and the sele
 
 ```sh
 kokoro-book book.epub
+kokoro-book inspect book.epub
+kokoro-book inspect notes.md --tree
 kokoro-book notes.txt --output notes.wav
 kokoro-book book.epub --voice af_sky --speed 1.1
 kokoro-book voices
 ```
 
 The default output sits beside the input with a `.wav` extension. The audio format is mono, 16-bit PCM, 24 kHz. The default voice is `af_heart`. Run `kokoro-book voices` for the 28 English presets.
+
+`inspect` reports the imported title and semantic sections without loading or downloading the TTS model. Use `--tree` to show the nested navigation structure. HTML uses its `<title>` when present. TXT and Markdown currently infer the title from the filename. TXT chapter detection recognizes common `PART`, `BOOK`, and `CHAPTER` headings. Markdown and HTML heading levels map directly into the semantic tree.
+
+Raw TXT, Markdown, and HTML inputs are limited to 32 MiB. HTML preflight caps parser resource units at 100,000, total attributes at 4,096, and tree depth at 128. EPUB archives are limited to 512 MiB, 10,000 entries, 32 MiB per expanded entry, and 512 MiB total expanded content. EPUB preflight validates archive paths, declared entry counts, actual decompression, and `META-INF/encryption.xml` before book parsing. Protected resources fail with a clear error. Standard IDPF and Adobe font obfuscation remain supported. These checks run before book parsing or model setup.
 
 ## Pronunciation overrides
 
@@ -47,8 +53,10 @@ Repeat `--pronunciation WORD=IPA` as needed. A regression test and a public-doma
 ## How it works
 
 ```text
-EPUB or TXT
-  -> sentence extraction
+EPUB, HTML, Markdown, or TXT
+  -> format-specific import
+  -> CanonicalBook
+  -> semantic normalization
   -> G2P
   -> bounded phoneme chunks
   -> one isolated MLX worker
@@ -70,13 +78,13 @@ Set `KOKORO_BOOK_CACHE_DIR` to override it. Downloads come from one pinned Huggi
 
 ## Scope
 
-- Input: English `.epub` and UTF-8 `.txt`
+- Input: English `.epub`, `.html`/`.xhtml`, `.md`, and UTF-8 `.txt`
 - Output: one `.wav`
 - Inference: native MLX through `mlx-rs`
 - Phonemes: lean `misaki-rs`
 - Voices: English Kokoro presets only
 
-PDF, OCR, translation, M4B, MP3, a web UI, and voice cloning are out of scope.
+Current limitations: EPUB metadata and navigation are not yet preserved, so the current EPUB title also comes from the filename. Conversion still emits WAV rather than M4B plus navigation sidecars. PDF, Kindle formats, OCR, translation, MP3, a web UI, and voice cloning are not implemented yet.
 
 ## Performance
 
