@@ -213,7 +213,7 @@ fn rejects_unsupported_input_types() {
     assert!(
         error
             .to_string()
-            .contains("supported input types: .epub, .pdf, .html, .md, and .txt")
+            .contains("supported input types: .epub, .azw3, .mobi, .pdf, .html, .md, and .txt")
     );
 }
 

@@ -403,6 +403,10 @@ fn compare_positions(left: &SourcePosition, right: &SourcePosition) -> Option<Or
         (
             SourcePosition::Text { byte_offset: left },
             SourcePosition::Text { byte_offset: right },
+        )
+        | (
+            SourcePosition::Kindle { byte_offset: left },
+            SourcePosition::Kindle { byte_offset: right },
         ) => Some(left.cmp(right)),
         (
             SourcePosition::Epub {

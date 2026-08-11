@@ -16,6 +16,7 @@ members = ["crates/mlx-memory-control"]
 anyhow = "1.0.102"
 clap = { version = "4.5.60", features = ["derive"] }
 directories = "6.0.0"
+encoding_rs = { version = "0.8.35", default-features = false }
 hound = "3.5.1"
 html5ever = "0.39.0"
 html2text = "0.17.1"

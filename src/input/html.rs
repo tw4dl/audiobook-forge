@@ -32,47 +32,51 @@ impl BookImporter for HtmlImporter {
         let (path, bytes) = input.into_parts();
         let source = String::from_utf8(bytes)
             .with_context(|| format!("failed to read UTF-8 HTML from {}", path.display()))?;
-        let is_xhtml = path
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("xhtml"));
-        let (nodes, warnings) = if is_xhtml {
-            parse_xhtml_nodes(&source, "XHTML")?
-        } else {
-            let (standard_html, parse_errors) = standardize_html(&source)?;
-            let (nodes, tokenizer_errors) = tokenize(&standard_html);
-            let parse_errors = parse_errors + tokenizer_errors;
-            let warnings = if parse_errors == 0 {
-                Vec::new()
-            } else {
-                vec![format!(
-                    "HTML contained {parse_errors} parser warning(s); recovered deterministically"
-                )]
-            };
-            (nodes, warnings)
-        };
-        let title = document_title(&nodes).unwrap_or_else(|| title_from_path(&path));
-        let mut builder = StructureBuilder::new(&title, None);
-        consume_nodes(&nodes, &mut builder);
-        let root = builder.finish();
-        let text = section_text(&root);
-
-        Ok(CanonicalBook {
-            metadata: BookMetadata {
-                title: Some(title),
-                ..BookMetadata::default()
-            },
-            root,
-            source: SourceDocument {
-                path,
-                format: SourceFormat::Html,
-                format_version: None,
-            },
-            text,
-            pages: Vec::new(),
-            warnings,
-        })
+        import_html_source(path, &source)
     }
+}
+
+pub(super) fn import_html_source(path: std::path::PathBuf, source: &str) -> Result<CanonicalBook> {
+    let is_xhtml = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("xhtml"));
+    let (nodes, warnings) = if is_xhtml {
+        parse_xhtml_nodes(source, "XHTML")?
+    } else {
+        let (standard_html, parse_errors) = standardize_html(source)?;
+        let (nodes, tokenizer_errors) = tokenize(&standard_html);
+        let parse_errors = parse_errors + tokenizer_errors;
+        let warnings = if parse_errors == 0 {
+            Vec::new()
+        } else {
+            vec![format!(
+                "HTML contained {parse_errors} parser warning(s); recovered deterministically"
+            )]
+        };
+        (nodes, warnings)
+    };
+    let title = document_title(&nodes).unwrap_or_else(|| title_from_path(&path));
+    let mut builder = StructureBuilder::new(&title, None);
+    consume_nodes(&nodes, &mut builder);
+    let root = builder.finish();
+    let text = section_text(&root);
+
+    Ok(CanonicalBook {
+        metadata: BookMetadata {
+            title: Some(title),
+            ..BookMetadata::default()
+        },
+        root,
+        source: SourceDocument {
+            path,
+            format: SourceFormat::Html,
+            format_version: None,
+        },
+        text,
+        pages: Vec::new(),
+        warnings,
+    })
 }
 
 pub(super) struct ParsedEpubHtml {

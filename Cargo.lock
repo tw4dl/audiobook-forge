@@ -1304,6 +1304,7 @@ dependencies = [
  "assert_cmd",
  "clap",
  "directories",
+ "encoding_rs",
  "hound",
  "html2text",
  "html5ever",

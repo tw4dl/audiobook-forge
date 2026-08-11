@@ -47,9 +47,11 @@ pub struct SourceDocument {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceFormat {
+    Azw3,
     Epub,
     Html,
     Markdown,
+    Mobi,
     Pdf,
     Text,
 }
@@ -57,9 +59,11 @@ pub enum SourceFormat {
 impl fmt::Display for SourceFormat {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Azw3 => formatter.write_str("AZW3/KF8"),
             Self::Epub => formatter.write_str("EPUB"),
             Self::Html => formatter.write_str("HTML"),
             Self::Markdown => formatter.write_str("Markdown"),
+            Self::Mobi => formatter.write_str("MOBI"),
             Self::Pdf => formatter.write_str("PDF"),
             Self::Text => formatter.write_str("TXT"),
         }
@@ -222,4 +226,6 @@ pub enum SourcePosition {
         page_number: u32,
         character_offset: Option<usize>,
     },
+    /// A UTF-8 byte offset in decoded MOBI or KF8 markup.
+    Kindle { byte_offset: usize },
 }

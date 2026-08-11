@@ -18,7 +18,7 @@ fn help_describes_conversion_and_inspection() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "EPUB, text-based PDF, HTML, Markdown, or TXT",
+            "EPUB, DRM-free AZW3/MOBI, text-based PDF, HTML, Markdown, or TXT",
         ))
         .stdout(predicate::str::contains("inspect"))
         .stdout(predicate::str::contains("--voice"))

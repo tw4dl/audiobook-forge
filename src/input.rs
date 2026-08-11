@@ -2,6 +2,7 @@
 
 mod epub;
 mod html;
+mod kindle;
 mod markdown;
 mod pdf;
 mod text;
@@ -18,6 +19,7 @@ const MIB: u64 = 1_024 * 1_024;
 const MAX_RAW_INPUT_BYTES: u64 = 32 * MIB;
 const MAX_EPUB_INPUT_BYTES: u64 = 512 * MIB;
 const MAX_PDF_INPUT_BYTES: u64 = 128 * MIB;
+const MAX_KINDLE_INPUT_BYTES: u64 = 128 * MIB;
 
 /// Common contract for format-specific importers.
 pub(super) trait BookImporter {
@@ -43,7 +45,7 @@ impl ImportSource {
 /// Read one supported book into the canonical model.
 ///
 /// Raw text formats are limited to 32 MiB. EPUB archives are limited to 512 MiB.
-/// PDFs are limited to 128 MiB.
+/// PDFs and Kindle files are limited to 128 MiB.
 ///
 /// # Errors
 ///
@@ -57,8 +59,9 @@ pub fn read_book(path: &Path) -> Result<CanonicalBook> {
     let (max_bytes, max_mib) = match extension.as_str() {
         "epub" => (MAX_EPUB_INPUT_BYTES, 512),
         "pdf" => (MAX_PDF_INPUT_BYTES, 128),
+        "azw" | "azw3" | "mobi" => (MAX_KINDLE_INPUT_BYTES, 128),
         "txt" | "md" | "markdown" | "htm" | "html" | "xhtml" => (MAX_RAW_INPUT_BYTES, 32),
-        _ => bail!("supported input types: .epub, .pdf, .html, .md, and .txt"),
+        _ => bail!("supported input types: .epub, .azw3, .mobi, .pdf, .html, .md, and .txt"),
     };
     let source = read_source(path, max_bytes, max_mib)?;
 
@@ -68,6 +71,7 @@ pub fn read_book(path: &Path) -> Result<CanonicalBook> {
         "htm" | "html" | "xhtml" => html::HtmlImporter.import(source)?,
         "epub" => epub::EpubImporter.import(source)?,
         "pdf" => pdf::PdfImporter.import(source)?,
+        "azw" | "azw3" | "mobi" => kindle::KindleImporter.import(source)?,
         _ => unreachable!("extension was validated before reading"),
     };
 

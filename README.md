@@ -1,6 +1,6 @@
 # kokoro-book
 
-A small offline CLI that turns an English EPUB, text-based PDF, HTML, Markdown, or UTF-8 TXT file into a WAV audiobook with [Kokoro-82M-bf16](https://huggingface.co/mlx-community/Kokoro-82M-bf16).
+A small offline CLI that turns an English EPUB, DRM-free AZW3/MOBI, text-based PDF, HTML, Markdown, or UTF-8 TXT file into a WAV audiobook with [Kokoro-82M-bf16](https://huggingface.co/mlx-community/Kokoro-82M-bf16).
 
 One model. One MLX worker. Preset voices only. No Python, server, GUI, eSpeak, ONNX Runtime, or voice cloning.
 
@@ -26,6 +26,7 @@ The first conversion downloads one pinned 312 MiB BF16 Kokoro model and the sele
 kokoro-book book.epub
 kokoro-book inspect book.epub
 kokoro-book inspect reference.pdf --tree
+kokoro-book inspect reference.azw3 --tree
 kokoro-book inspect notes.md --tree
 kokoro-book notes.txt --output notes.wav
 kokoro-book book.epub --voice af_sky --speed 1.1
@@ -38,11 +39,15 @@ The default output sits beside the input with a `.wav` extension. The audio form
 
 PDF inspection preserves title, author, PDF version, physical page number, and authored page label. Outline/bookmark hierarchy takes priority over deterministic `PART`, `BOOK`, and `CHAPTER` heading inference. A PDF with no usable outline reports the lower-confidence fallback before synthesis. Password-protected PDFs fail with a clear DRM-free-copy message. A PDF with no extractable text fails with a clear message that OCR is not supported. Tagged-PDF logical structure is not interpreted in V1.
 
+DRM-free standalone KF8/AZW3 and legacy MOBI import through the same HTML structure path as EPUB content. The importer preserves title, authors, language, cover bytes, reading order, headings, and source ranges. It restores legacy MOBI chapters from authored `filepos` navigation and removes generated inline tables of contents from narration. It supports uncompressed and PalmDOC-compressed text. Encrypted books fail before content extraction. HUFF/CDIC compression is isolated behind a clear unsupported-format error. Combined MOBI/KF8 files currently use the legacy MOBI rendition. KF8 navigation that exists only in binary INDX records, embedded non-cover image assets, and KFX are not supported yet.
+
 HTML uses its `<title>` when present. TXT and Markdown infer the title from the filename. TXT chapter detection recognizes common `PART`, `BOOK`, and `CHAPTER` headings. Markdown and HTML heading levels map directly into the semantic tree.
 
 Raw TXT, Markdown, and HTML inputs are limited to 32 MiB. HTML preflight caps parser resource units at 100,000, total attributes at 4,096, and tree depth at 128. EPUB archives are limited to 512 MiB, 10,000 entries, 32 MiB per expanded entry, and 512 MiB total expanded content. EPUB preflight validates archive paths, declared entry counts, actual decompression, and `META-INF/encryption.xml` before book parsing. Protected resources fail with a clear error. Standard IDPF and Adobe font obfuscation remain supported.
 
 PDF files are limited to 128 MiB, 200,000 parsed objects, 10,000 pages, 16 MiB per decompressed parser or page-text stream, 128 MiB total extracted text, 10,000 outline nodes, and 128 outline levels. Page trees, bookmark trees, named destinations, and page-label trees are checked for impossible counts, excessive depth, and reference cycles before recursive library outline processing. These checks run before model setup.
+
+MOBI and AZW3 files are limited to 128 MiB, 50,000 Palm database records, 128 MiB decoded text, 4,096 EXTH metadata records, 10,000 legacy navigation entries, 100,000 HTML parser resource units, 4,096 HTML attributes, and 128 HTML levels. Palm database offsets, record counts, compression back-references, trailing data, EXTH lengths, encryption flags, and text encoding are validated before HTML parsing or model setup.
 
 ## Pronunciation overrides
 
@@ -60,7 +65,7 @@ Repeat `--pronunciation WORD=IPA` as needed. A regression test and a public-doma
 ## How it works
 
 ```text
-EPUB, text-based PDF, HTML, Markdown, or TXT
+EPUB, DRM-free AZW3/MOBI, text-based PDF, HTML, Markdown, or TXT
   -> format-specific import
   -> CanonicalBook
   -> semantic normalization
@@ -85,13 +90,13 @@ Set `KOKORO_BOOK_CACHE_DIR` to override it. Downloads come from one pinned Huggi
 
 ## Scope
 
-- Input: English `.epub`, text-based `.pdf`, `.html`/`.xhtml`, `.md`, and UTF-8 `.txt`
+- Input: English `.epub`, DRM-free `.azw3`/`.mobi`, text-based `.pdf`, `.html`/`.xhtml`, `.md`, and UTF-8 `.txt`
 - Output: one `.wav`
 - Inference: native MLX through `mlx-rs`
 - Phonemes: lean `misaki-rs`
 - Voices: English Kokoro presets only
 
-Current limitations: conversion still emits WAV rather than M4B plus navigation sidecars. The new M4B, semantic narration, resumable segment cache, and sidecar modules are not wired into the public conversion command yet. Kindle formats, tagged-PDF logical structure, OCR, translation, MP3, a web UI, and voice cloning are not implemented yet. DRM removal is out of scope; unsupported encrypted resources fail before parsing or synthesis.
+Current limitations: conversion still emits WAV rather than M4B plus navigation sidecars. The new M4B, semantic narration, resumable segment cache, and sidecar modules are not wired into the public conversion command yet. HUFF/CDIC MOBI, binary-only KF8 navigation, combined-file KF8 rendition selection, tagged-PDF logical structure, OCR, translation, MP3, a web UI, and voice cloning are not implemented yet. DRM removal is out of scope; unsupported encrypted resources fail before parsing or synthesis.
 
 ## Performance
 

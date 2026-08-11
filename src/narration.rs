@@ -104,9 +104,9 @@ pub fn plan_narration(book: &CanonicalBook, policy: NarrationPolicy) -> Narratio
 fn page_source_id(book: &CanonicalBook, position: &SourcePosition) -> String {
     match position {
         SourcePosition::Epub { resource, .. } => resource.clone(),
-        SourcePosition::Text { .. } | SourcePosition::Pdf { .. } => {
-            book.source.path.display().to_string()
-        }
+        SourcePosition::Text { .. }
+        | SourcePosition::Pdf { .. }
+        | SourcePosition::Kindle { .. } => book.source.path.display().to_string(),
     }
 }
 
