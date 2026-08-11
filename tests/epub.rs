@@ -16,8 +16,8 @@ use structured_epub::{
     write_epub3_with_malformed_navigation_and_tail, write_epub3_with_prose_before_targeted_heading,
     write_epub3_with_reversed_same_document_toc, write_epub3_with_reversed_toc,
     write_epub3_with_tokenized_navigation, write_epub3_with_unlisted_headingless_tail,
-    write_structured_epub2, write_structured_epub3, write_structured_epub3_with_container_target,
-    write_structured_epub3_without_page_list,
+    write_public_domain_epub3, write_structured_epub2, write_structured_epub3,
+    write_structured_epub3_with_container_target, write_structured_epub3_without_page_list,
 };
 use utf16_epub::{write_utf16_deep_navigation_epub3, write_utf16_epub3};
 
@@ -169,6 +169,19 @@ fn canonical_order_follows_the_spine_when_toc_order_is_reversed() {
     assert_eq!(part.children[0].title.as_deref(), Some("Chapter One"));
     assert_eq!(part.children[1].title.as_deref(), Some("Chapter Two"));
     assert!(book.text.find("First chapter").unwrap() < book.text.find("Second chapter").unwrap());
+}
+
+#[test]
+fn public_domain_epub_fixture_produces_correct_chapter_ordering() {
+    let temp = tempdir().expect("temp dir");
+    let path = temp.path().join("on-the-eve.epub");
+    write_public_domain_epub3(&path);
+
+    let book = read_book(&path).expect("public-domain EPUB");
+
+    assert_eq!(book.root.children[0].title.as_deref(), Some("Excerpt One"));
+    assert_eq!(book.root.children[1].title.as_deref(), Some("Excerpt Two"));
+    assert!(book.text.find("Why so?").unwrap() < book.text.find("One would think").unwrap());
 }
 
 #[test]

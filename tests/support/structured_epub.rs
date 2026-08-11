@@ -192,6 +192,28 @@ pub(super) fn write_epub3_with_tokenized_navigation(path: &Path) {
     );
 }
 
+pub(super) fn write_public_domain_epub3(path: &Path) {
+    write_minimal_epub3_named(
+        path,
+        "On the Eve excerpt",
+        br#"<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body>
+<nav epub:type="toc"><ol>
+<li><a href="excerpt-two.xhtml#two">Excerpt Two</a></li>
+<li><a href="excerpt-one.xhtml#one">Excerpt One</a></li>
+</ol></nav></body></html>"#,
+        &[
+            (
+                "excerpt-one.xhtml",
+                br#"<html xmlns="http://www.w3.org/1999/xhtml"><body><h1 id="one">Excerpt One</h1><p>Why so? inquired Elena.</p></body></html>"#,
+            ),
+            (
+                "excerpt-two.xhtml",
+                br#"<html xmlns="http://www.w3.org/1999/xhtml"><body><h1 id="two">Excerpt Two</h1><p>One would think you were speaking of some spiteful, disagreeable old woman. She is a pretty young girl.</p></body></html>"#,
+            ),
+        ],
+    );
+}
+
 fn write_structured_epub3_with_navigation(path: &Path, navigation: &[u8]) {
     write_structured_epub3_with_navigation_path(path, navigation, "nav.xhtml");
 }
@@ -445,6 +467,15 @@ fn character_offset(source: &[u8], marker: &str) -> usize {
 }
 
 fn write_minimal_epub3(path: &Path, navigation: &[u8], documents: &[(&str, &[u8])]) {
+    write_minimal_epub3_named(path, "Ordering Fixture", navigation, documents);
+}
+
+fn write_minimal_epub3_named(
+    path: &Path,
+    title: &str,
+    navigation: &[u8],
+    documents: &[(&str, &[u8])],
+) {
     use std::fmt::Write as _;
 
     let file = File::create(path).expect("EPUB fixture");
@@ -472,7 +503,7 @@ fn write_minimal_epub3(path: &Path, navigation: &[u8], documents: &[(&str, &[u8]
         write!(&mut spine, r#"<itemref idref="doc-{index}"/>"#).expect("spine");
     }
     let package = format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?><package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="book-id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="book-id">urn:uuid:ordering</dc:identifier><dc:title>Ordering Fixture</dc:title><dc:language>en</dc:language><meta property="dcterms:modified">2026-08-10T00:00:00Z</meta></metadata><manifest>{manifest}</manifest><spine>{spine}</spine></package>"#
+        r#"<?xml version="1.0" encoding="UTF-8"?><package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="book-id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="book-id">urn:uuid:ordering</dc:identifier><dc:title>{title}</dc:title><dc:language>en</dc:language><meta property="dcterms:modified">2026-08-10T00:00:00Z</meta></metadata><manifest>{manifest}</manifest><spine>{spine}</spine></package>"#
     );
     write_entry(&mut zip, "EPUB/package.opf", package.as_bytes(), deflated);
     write_entry(&mut zip, "EPUB/nav.xhtml", navigation, deflated);

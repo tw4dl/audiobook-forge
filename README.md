@@ -118,6 +118,8 @@ Successful speech segments remain under the same cache root. A retry after inter
 
 `book.manifest.json` uses schema version 1. It records the source path and SHA-256 hash, source format, tool and importer versions, detected metadata, provider/model/voice identity, configuration hash, pronunciation overrides, speed, footnote and chapter policies, pause/retry settings, AAC settings, warnings, output files, build time, duration, and counts. It does not record API keys or other credentials.
 
+The generated M4B has been tested in VLC 3.0.23 on macOS, including forward and backward chapter selection. See [PLAYER_COMPATIBILITY.md](PLAYER_COMPATIBILITY.md) for the exact build, independent metadata check, and player transcript.
+
 ## Privacy and security
 
 Book parsing, speech generation, caching, and AAC assembly run locally. The first use of a model or voice downloads only that pinned asset from Hugging Face. Book text is not sent to a cloud TTS service. `ffmpeg` and `ffprobe` receive local file paths as direct process arguments, not shell text.
@@ -135,6 +137,17 @@ DRM removal is not supported. Purchasing a book does not make its encryption rem
 - Voices: English Kokoro presets only
 
 Current limitations: HUFF/CDIC MOBI, binary-only KF8 navigation, combined-file KF8 rendition selection, tagged-PDF logical structure, complex-table preservation/narration, OCR, translation, MP3, a custom player, a web UI, and voice cloning are not implemented. `--nav auto` does not yet promote sections based on listening duration. Source text remains in the semantic model and navigation sidecar, but there is no `locate` or synchronized-text command yet.
+
+## Development checks
+
+The Linux CI gate runs formatting, strict Clippy, all workspace tests, M4B validation with FFmpeg, and the dependency policy. It uses deterministic mock TTS and needs no model download, API key, or paid TTS account. The native MLX allocator test runs in the full local gate on Apple Silicon.
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-targets --all-features
+cargo deny check
+```
 
 ## Performance
 
