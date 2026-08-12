@@ -10,7 +10,7 @@
 
 Please do not open a public issue for a security vulnerability.
 
-Use [GitHub private vulnerability reporting](https://github.com/tw4dl/audiobook-forge/security/advisories/new) when it is available. If private reporting is unavailable, contact the repository owner through GitHub and include `kokoro-book security` in the subject.
+Use [GitHub private vulnerability reporting](https://github.com/tw4dl/audiobook-forge/security/advisories/new) when it is available. If private reporting is unavailable, contact the repository owner through GitHub and include `audiobook-forge security` in the subject.
 
 Include:
 

@@ -126,12 +126,13 @@ impl ProcessWorker {
     /// Returns an error when the executable, process pipes, model, or ready
     /// frame fails.
     pub fn launch(launch: WorkerLaunch) -> Result<Self> {
-        let executable = std::env::current_exe().context("cannot locate kokoro-book executable")?;
+        let executable =
+            std::env::current_exe().context("cannot locate audiobook-forge executable")?;
         Self::launch_with_executable(launch, &executable)
     }
 
     fn launch_with_executable(launch: WorkerLaunch, executable: &Path) -> Result<Self> {
-        let timing_log = std::env::var_os("KOKORO_BOOK_WORKER_TIME_LOG").map(PathBuf::from);
+        let timing_log = std::env::var_os("AUDIOBOOK_FORGE_WORKER_TIME_LOG").map(PathBuf::from);
         let mut child = worker_process_command(executable, timing_log.as_deref())
             .arg("__worker")
             .arg("--model-dir")
@@ -322,7 +323,7 @@ mod tests {
     #[test]
     fn wraps_only_the_worker_with_apple_time_when_requested() {
         let command = worker_process_command(
-            Path::new("/tmp/kokoro-book"),
+            Path::new("/tmp/audiobook-forge"),
             Some(Path::new("/tmp/worker.time")),
         );
 
@@ -332,7 +333,7 @@ mod tests {
                 .get_args()
                 .map(|argument| argument.to_string_lossy().into_owned())
                 .collect::<Vec<_>>(),
-            ["-a", "-l", "-o", "/tmp/worker.time", "/tmp/kokoro-book"]
+            ["-a", "-l", "-o", "/tmp/worker.time", "/tmp/audiobook-forge"]
         );
     }
 }

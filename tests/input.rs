@@ -1,5 +1,5 @@
-use kokoro_book::book::{Block, Provenance, SectionKind, SourcePosition};
-use kokoro_book::input::read_book;
+use audiobook_forge::book::{Block, Provenance, SectionKind, SourcePosition};
+use audiobook_forge::input::read_book;
 use tempfile::tempdir;
 
 #[test]

@@ -169,5 +169,5 @@ impl fmt::Display for Voice {
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
-#[error("unknown English voice '{0}'; run `kokoro-book voices`")]
+#[error("unknown English voice '{0}'; run `audiobook-forge voices`")]
 pub struct VoiceError(String);

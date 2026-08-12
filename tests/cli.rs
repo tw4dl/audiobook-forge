@@ -12,22 +12,50 @@ mod pdf_fixture;
 
 #[test]
 fn help_describes_conversion_and_inspection() {
-    Command::cargo_bin("kokoro-book")
+    Command::cargo_bin("audiobook-forge")
         .expect("binary")
         .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Usage: audiobook-forge <COMMAND>"))
+        .stdout(predicate::str::contains(
+            "audiobook-forge convert book.epub",
+        ))
+        .stdout(predicate::str::contains("convert"))
+        .stdout(predicate::str::contains("inspect"))
+        .stdout(predicate::str::contains("M4B"));
+}
+
+#[test]
+fn convert_help_describes_synthesis_options() {
+    Command::cargo_bin("audiobook-forge")
+        .expect("binary")
+        .args(["convert", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains(
             "EPUB, DRM-free AZW3/MOBI, text-based PDF, HTML, Markdown, or TXT",
         ))
-        .stdout(predicate::str::contains("inspect"))
         .stdout(predicate::str::contains("--voice"))
         .stdout(predicate::str::contains("--provider"))
         .stdout(predicate::str::contains("--pronunciation"))
         .stdout(predicate::str::contains("--output"))
         .stdout(predicate::str::contains("--nav"))
-        .stdout(predicate::str::contains("--footnotes"))
-        .stdout(predicate::str::contains("M4B"));
+        .stdout(predicate::str::contains("--footnotes"));
+}
+
+#[test]
+fn bare_invocation_explains_that_conversion_is_explicit() {
+    Command::cargo_bin("audiobook-forge")
+        .expect("binary")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no command provided"))
+        .stderr(predicate::str::contains("Usage: audiobook-forge <COMMAND>"))
+        .stderr(predicate::str::contains(
+            "audiobook-forge convert book.epub",
+        ))
+        .stderr(predicate::str::contains('\u{fffd}').not());
 }
 
 #[test]
@@ -37,11 +65,12 @@ fn qwen_provider_rejects_unsupported_speed_before_runtime_setup() {
     let cache = temp.path().join("cache");
     std::fs::write(&input, "CHAPTER ONE\nA short test sentence.").expect("fixture");
 
-    Command::cargo_bin("kokoro-book")
+    Command::cargo_bin("audiobook-forge")
         .expect("binary")
+        .arg("convert")
         .arg(&input)
         .args(["--provider", "qwen", "--speed", "1.1"])
-        .env("KOKORO_BOOK_CACHE_DIR", &cache)
+        .env("AUDIOBOOK_FORGE_CACHE_DIR", &cache)
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -60,21 +89,22 @@ fn qwen_provider_reports_a_missing_python_runtime_clearly() {
     let missing_python = temp.path().join("missing-qwen-python");
     std::fs::write(&input, "CHAPTER ONE\nA short test sentence.").expect("fixture");
 
-    Command::cargo_bin("kokoro-book")
+    Command::cargo_bin("audiobook-forge")
         .expect("binary")
+        .arg("convert")
         .arg(&input)
         .args(["--provider", "qwen", "--output"])
         .arg(&output)
-        .env("KOKORO_BOOK_QWEN_PYTHON", &missing_python)
+        .env("AUDIOBOOK_FORGE_QWEN_PYTHON", &missing_python)
         .assert()
         .failure()
         .stderr(predicate::str::contains("Qwen Python runtime not found"))
-        .stderr(predicate::str::contains("KOKORO_BOOK_QWEN_PYTHON"));
+        .stderr(predicate::str::contains("AUDIOBOOK_FORGE_QWEN_PYTHON"));
 }
 
 #[test]
 fn voices_lists_presets_without_loading_a_model() {
-    Command::cargo_bin("kokoro-book")
+    Command::cargo_bin("audiobook-forge")
         .expect("binary")
         .arg("voices")
         .assert()
@@ -94,11 +124,11 @@ fn inspect_txt_reports_semantic_sections_without_loading_a_model() {
     )
     .expect("fixture");
 
-    Command::cargo_bin("kokoro-book")
+    Command::cargo_bin("audiobook-forge")
         .expect("binary")
         .arg("inspect")
         .arg(&input)
-        .env("KOKORO_BOOK_CACHE_DIR", &cache)
+        .env("AUDIOBOOK_FORGE_CACHE_DIR", &cache)
         .assert()
         .success()
         .stdout(predicate::str::contains("Title: tiny-book"))
@@ -118,7 +148,7 @@ fn preflight_writes_tts_ready_artifacts_without_loading_a_model() {
     let cache = temp.path().join("cache");
     std::fs::write(&input, "CHAPTER ONE\nWritten and certain.\n").expect("fixture");
 
-    Command::cargo_bin("kokoro-book")
+    Command::cargo_bin("audiobook-forge")
         .expect("binary")
         .args([
             "preflight",
@@ -128,7 +158,7 @@ fn preflight_writes_tts_ready_artifacts_without_loading_a_model() {
             "--format",
             "text",
         ])
-        .env("KOKORO_BOOK_CACHE_DIR", &cache)
+        .env("AUDIOBOOK_FORGE_CACHE_DIR", &cache)
         .assert()
         .success()
         .stdout(predicate::str::contains("Preflight complete"))
@@ -164,7 +194,7 @@ fn inspect_epub_reports_book_metadata_and_navigation_counts() {
     let input = temp.path().join("structured.epub");
     structured_epub::write_structured_epub3(&input);
 
-    Command::cargo_bin("kokoro-book")
+    Command::cargo_bin("audiobook-forge")
         .expect("binary")
         .arg("inspect")
         .arg(&input)
@@ -188,12 +218,12 @@ fn inspect_pdf_reports_metadata_pages_and_bookmarks_without_loading_a_model() {
     let cache = temp.path().join("cache");
     pdf_fixture::write_pdf_with_bookmarks(&input);
 
-    Command::cargo_bin("kokoro-book")
+    Command::cargo_bin("audiobook-forge")
         .expect("binary")
         .arg("inspect")
         .arg(&input)
         .arg("--tree")
-        .env("KOKORO_BOOK_CACHE_DIR", &cache)
+        .env("AUDIOBOOK_FORGE_CACHE_DIR", &cache)
         .assert()
         .success()
         .stdout(predicate::str::contains("Title: Public Domain Sample"))
@@ -217,7 +247,7 @@ fn inspect_tree_nests_txt_chapters_under_parts() {
     )
     .expect("fixture");
 
-    Command::cargo_bin("kokoro-book")
+    Command::cargo_bin("audiobook-forge")
         .expect("binary")
         .arg("inspect")
         .arg(&input)
@@ -239,7 +269,7 @@ fn inspect_tree_maps_markdown_heading_levels() {
     )
     .expect("fixture");
 
-    Command::cargo_bin("kokoro-book")
+    Command::cargo_bin("audiobook-forge")
         .expect("binary")
         .arg("inspect")
         .arg(&input)
@@ -262,7 +292,7 @@ fn inspect_tree_maps_html_heading_levels() {
     )
     .expect("fixture");
 
-    Command::cargo_bin("kokoro-book")
+    Command::cargo_bin("audiobook-forge")
         .expect("binary")
         .arg("inspect")
         .arg(&input)
@@ -281,7 +311,7 @@ fn inspect_warns_when_txt_has_no_detected_sections() {
     let input = temp.path().join("plain.txt");
     std::fs::write(&input, "Only unstructured prose.").expect("fixture");
 
-    Command::cargo_bin("kokoro-book")
+    Command::cargo_bin("audiobook-forge")
         .expect("binary")
         .arg("inspect")
         .arg(&input)
@@ -301,11 +331,12 @@ fn conversion_reports_structural_warnings_before_synthesis() {
     let cache = temp.path().join("cache");
     std::fs::write(&input, "Only unstructured prose.").expect("fixture");
 
-    Command::cargo_bin("kokoro-book")
+    Command::cargo_bin("audiobook-forge")
         .expect("binary")
+        .arg("convert")
         .arg(&input)
         .args(["--speed", "3"])
-        .env("KOKORO_BOOK_CACHE_DIR", &cache)
+        .env("AUDIOBOOK_FORGE_CACHE_DIR", &cache)
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -321,7 +352,7 @@ fn inspect_sanitizes_terminal_control_characters() {
     let input = temp.path().join("bad\u{1b}[31m.txt");
     std::fs::write(&input, "CHAPTER ONE\nSafe prose.").expect("fixture");
 
-    Command::cargo_bin("kokoro-book")
+    Command::cargo_bin("audiobook-forge")
         .expect("binary")
         .arg("inspect")
         .arg(&input)
@@ -337,8 +368,9 @@ fn errors_sanitize_terminal_control_characters() {
     let temp = tempdir().expect("temp dir");
     let input = temp.path().join("missing\u{1b}[31m.txt");
 
-    Command::cargo_bin("kokoro-book")
+    Command::cargo_bin("audiobook-forge")
         .expect("binary")
+        .arg("convert")
         .arg(&input)
         .assert()
         .failure()
@@ -348,7 +380,7 @@ fn errors_sanitize_terminal_control_characters() {
 
 #[test]
 fn argument_errors_sanitize_bidirectional_controls() {
-    Command::cargo_bin("kokoro-book")
+    Command::cargo_bin("audiobook-forge")
         .expect("binary")
         .arg("--bad\u{202e}option")
         .assert()
@@ -363,10 +395,11 @@ fn invalid_input_fails_before_any_download() {
     let input = temp.path().join("book.pdf");
     std::fs::write(&input, b"bad").expect("fixture");
 
-    Command::cargo_bin("kokoro-book")
+    Command::cargo_bin("audiobook-forge")
         .expect("binary")
+        .arg("convert")
         .arg(&input)
-        .env("KOKORO_BOOK_CACHE_DIR", temp.path().join("cache"))
+        .env("AUDIOBOOK_FORGE_CACHE_DIR", temp.path().join("cache"))
         .assert()
         .failure()
         .stderr(predicate::str::contains("failed to parse PDF"));
@@ -394,11 +427,12 @@ fn invalid_options_fail_before_any_download() {
         let cache = temp.path().join("cache");
         std::fs::write(&input, "A short test sentence.").expect("fixture");
 
-        Command::cargo_bin("kokoro-book")
+        Command::cargo_bin("audiobook-forge")
             .expect("binary")
+            .arg("convert")
             .arg(&input)
             .args(arguments)
-            .env("KOKORO_BOOK_CACHE_DIR", &cache)
+            .env("AUDIOBOOK_FORGE_CACHE_DIR", &cache)
             .assert()
             .failure()
             .stderr(predicate::str::contains(expected));
@@ -416,12 +450,13 @@ fn output_file_path_fails_before_model_setup() {
     std::fs::write(&input, "A short test sentence.").expect("fixture");
     std::fs::write(&output, "not a directory").expect("occupied output");
 
-    Command::cargo_bin("kokoro-book")
+    Command::cargo_bin("audiobook-forge")
         .expect("binary")
+        .arg("convert")
         .arg(&input)
         .arg("--output")
         .arg(&output)
-        .env("KOKORO_BOOK_CACHE_DIR", &cache)
+        .env("AUDIOBOOK_FORGE_CACHE_DIR", &cache)
         .assert()
         .failure()
         .stderr(predicate::str::contains(

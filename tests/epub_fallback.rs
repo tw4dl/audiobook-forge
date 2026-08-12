@@ -2,8 +2,8 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-use kokoro_book::book::SourcePosition;
-use kokoro_book::input::read_book;
+use audiobook_forge::book::SourcePosition;
+use audiobook_forge::input::read_book;
 use tempfile::tempdir;
 use zip::write::FileOptions;
 
@@ -63,7 +63,7 @@ fn imports_svg_spine_text_as_separate_source_mapped_blocks() {
         .blocks
         .iter()
         .filter_map(|block| match block {
-            kokoro_book::book::Block::Paragraph(block) => block.source_range.as_ref(),
+            audiobook_forge::book::Block::Paragraph(block) => block.source_range.as_ref(),
             _ => None,
         })
         .filter_map(|range| match &range.start {

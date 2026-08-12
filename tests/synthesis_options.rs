@@ -1,4 +1,4 @@
-use kokoro_book::tts::{DEFAULT_MAX_PHONEMES, validate_settings};
+use audiobook_forge::tts::{DEFAULT_MAX_PHONEMES, validate_settings};
 
 #[test]
 fn defaults_to_the_safest_benchmarked_phoneme_limit() {

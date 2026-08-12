@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for helping improve `kokoro-book`.
+Thank you for helping improve `audiobook-forge`.
 
 ## Before you start
 

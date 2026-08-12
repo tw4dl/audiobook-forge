@@ -1,4 +1,4 @@
-use kokoro_book::voice::{DEFAULT_VOICE, ENGLISH_VOICES, Voice};
+use audiobook_forge::voice::{DEFAULT_VOICE, ENGLISH_VOICES, Voice};
 
 #[test]
 fn default_voice_is_the_benchmarked_preset() {

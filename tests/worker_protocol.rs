@@ -1,6 +1,6 @@
 use std::io::Cursor;
 
-use kokoro_book::worker::{
+use audiobook_forge::worker::{
     WorkerRequest, WorkerResponse, WorkerStats, read_request, read_response, write_request,
     write_response,
 };

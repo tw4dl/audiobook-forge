@@ -158,7 +158,7 @@ pub(crate) fn configuration_hash(
     max_phonemes: usize,
 ) -> String {
     let mut digest = Sha256::new();
-    digest.update(b"kokoro-book-provider-v1\0");
+    digest.update(b"audiobook-forge-provider-v1\0");
     digest.update(crate::vocab::PHONEME_NORMALIZATION_VERSION.to_le_bytes());
     digest.update(MODEL_REVISION.as_bytes());
     digest.update([0]);

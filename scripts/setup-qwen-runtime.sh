@@ -6,7 +6,7 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-cache_root="${KOKORO_BOOK_CACHE_DIR:-${HOME}/Library/Caches/kokoro-book}"
+cache_root="${AUDIOBOOK_FORGE_CACHE_DIR:-${HOME}/Library/Caches/audiobook-forge}"
 runtime_dir="${cache_root}/qwen-runtime"
 runtime_commit="49596ac8b69b9ed377db311a73df838795f38a3d"
 

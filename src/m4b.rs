@@ -88,7 +88,7 @@ pub fn assemble_m4b(
     write_metadata(book, &chapters, &metadata)?;
     let cover = write_cover(book, &workspace)?;
     let temporary = TempBuilder::new()
-        .prefix(".kokoro-book-")
+        .prefix(".audiobook-forge-")
         .suffix(".m4b")
         .tempfile_in(parent)
         .with_context(|| format!("failed to create temporary M4B in {}", parent.display()))?;

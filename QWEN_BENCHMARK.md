@@ -16,7 +16,7 @@ On this chapter, Qwen did not improve sampled intelligibility. Both providers pr
 - Input SHA-256: `65c5fc78571a66d8e55ef2024aa8a3acbfa29fcc8f115caed23ab8c9167e0ee6`
 - Text: 5,385 words, 29,841 narrated characters, 274 narration units
 - Shared settings: English, speed `1.0`, chapter navigation, mono 24 kHz output, 64 kbit/s AAC
-- Cache control: each provider used an empty `KOKORO_BOOK_SEGMENT_CACHE_DIR`; the two reported cache hits were duplicate text within the same run
+- Cache control: each provider used an empty `AUDIOBOOK_FORGE_SEGMENT_CACHE_DIR`; the two reported cache hits were duplicate text within the same run
 
 The benchmark used an Apple M1 Pro MacBook Pro with 8 CPU cores and 16 GB RAM, macOS 26.1. Tool versions were Rust nightly 1.99, FFmpeg 8.0.1, Python 3.12.13, `mlx-audio` 0.4.8, and MLX 0.32.0.
 

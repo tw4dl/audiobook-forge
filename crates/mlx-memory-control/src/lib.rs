@@ -1,6 +1,6 @@
 //! Small audited boundary around MLX allocation-cache control.
 //!
-//! This is the only `kokoro-book` crate allowed to call the unsafe MLX C API.
+//! This is the only `audiobook-forge` crate allowed to call the unsafe MLX C API.
 
 use std::error::Error as StdError;
 use std::fmt;

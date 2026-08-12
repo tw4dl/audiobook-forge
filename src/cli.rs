@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use clap::error::ErrorKind;
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 
 use crate::book::Section;
 use crate::build::{
@@ -35,15 +35,22 @@ use crate::worker::{WorkerLaunch, WorkerLimits, run_mlx_worker};
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "kokoro-book",
+    name = "audiobook-forge",
     version,
     about = "Turn an English ebook or document into a navigable M4B audiobook",
-    long_about = None
+    long_about = "Turn an English ebook or document into a navigable M4B audiobook.\n\nUse `convert` for synthesis, or choose a read-only command such as `inspect`, `preflight`, or `voices`.",
+    after_help = "Examples:\n  audiobook-forge convert book.epub --output ./book-audio\n  audiobook-forge inspect book.epub --tree\n  audiobook-forge preflight book.epub --output ./prepared"
 )]
 struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Debug, Args)]
+struct ConvertArgs {
     /// EPUB, DRM-free AZW3/MOBI, text-based PDF, HTML, Markdown, or TXT input file
     #[arg(value_name = "INPUT")]
-    input: Option<PathBuf>,
+    input: PathBuf,
 
     /// Output directory; defaults to a folder beside the source
     #[arg(short, long, value_name = "DIR")]
@@ -88,9 +95,6 @@ struct Cli {
     /// Fail on best-effort preflight repairs as well as blockers
     #[arg(long)]
     strict_preflight: bool,
-
-    #[command(subcommand)]
-    command: Option<Command>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -147,6 +151,9 @@ enum PreflightFailOn {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Convert an ebook or document into a navigable M4B audiobook
+    Convert(ConvertArgs),
+
     /// Inspect the imported title and semantic structure without synthesis
     Inspect {
         /// EPUB, DRM-free AZW3/MOBI, text-based PDF, HTML, Markdown, or TXT input file
@@ -234,6 +241,13 @@ enum Command {
 ///
 /// Returns an error for invalid input, model setup, or synthesis output.
 pub fn run() -> Result<()> {
+    if std::env::args_os().len() == 1 {
+        let mut command = Cli::command();
+        let help = command.render_help();
+        bail!(format!(
+            "no command provided; to convert a book, run `audiobook-forge convert INPUT`\n\n{help}"
+        ));
+    }
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(error)
@@ -256,12 +270,13 @@ pub fn run() -> Result<()> {
 
 fn run_with(cli: &Cli) -> Result<()> {
     match &cli.command {
-        Some(Command::Inspect { input, tree }) => {
+        Command::Convert(args) => run_conversion(args),
+        Command::Inspect { input, tree } => {
             let book = read_book(input)?;
             print_inspection(&book, *tree);
-            return Ok(());
+            Ok(())
         }
-        Some(Command::Preflight {
+        Command::Preflight {
             input,
             output,
             report,
@@ -274,7 +289,7 @@ fn run_with(cli: &Cli) -> Result<()> {
             nav,
             format,
             fail_on,
-        }) => {
+        } => {
             run_preflight_command(
                 input,
                 output.as_deref(),
@@ -289,9 +304,9 @@ fn run_with(cli: &Cli) -> Result<()> {
                 *format,
                 *fail_on,
             )?;
-            return Ok(());
+            Ok(())
         }
-        Some(Command::Voices) => {
+        Command::Voices => {
             for voice in ENGLISH_VOICES {
                 let suffix = if voice.name == DEFAULT_VOICE {
                     " (default)"
@@ -300,29 +315,24 @@ fn run_with(cli: &Cli) -> Result<()> {
                 };
                 println!("{}{suffix}", voice.name);
             }
-            return Ok(());
+            Ok(())
         }
-        Some(Command::Worker {
+        Command::Worker {
             model_dir,
             voice_file,
             cache_limit_bytes,
             cached_threshold_bytes,
             memory_limit_bytes,
-        }) => {
-            return run_mlx_worker(&WorkerLaunch {
-                model_dir: model_dir.clone(),
-                voice_file: voice_file.clone(),
-                limits: WorkerLimits {
-                    cache_limit_bytes: *cache_limit_bytes,
-                    cached_threshold_bytes: *cached_threshold_bytes,
-                    memory_limit_bytes: *memory_limit_bytes,
-                },
-            });
-        }
-        None => {}
+        } => run_mlx_worker(&WorkerLaunch {
+            model_dir: model_dir.clone(),
+            voice_file: voice_file.clone(),
+            limits: WorkerLimits {
+                cache_limit_bytes: *cache_limit_bytes,
+                cached_threshold_bytes: *cached_threshold_bytes,
+                memory_limit_bytes: *memory_limit_bytes,
+            },
+        }),
     }
-
-    run_conversion(cli)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -420,11 +430,8 @@ fn print_preflight_summary(report: &PreflightReport, format: PreflightFormat) {
     }
 }
 
-fn run_conversion(cli: &Cli) -> Result<()> {
-    let input = cli
-        .input
-        .as_deref()
-        .context("missing INPUT; run `kokoro-book --help`")?;
+fn run_conversion(cli: &ConvertArgs) -> Result<()> {
+    let input = &cli.input;
     let book = read_book(input)?;
     for warning in &book.warnings {
         eprintln!("WARN: {}", terminal_text(warning));
@@ -451,7 +458,7 @@ fn run_conversion(cli: &Cli) -> Result<()> {
     }
 }
 
-fn validate_qwen_options(cli: &Cli) -> Result<()> {
+fn validate_qwen_options(cli: &ConvertArgs) -> Result<()> {
     validate_qwen_speed(cli.speed)?;
     if !cli.pronunciation.is_empty() {
         bail!("--pronunciation is supported only by the Kokoro provider");
@@ -466,7 +473,7 @@ fn validate_qwen_options(cli: &Cli) -> Result<()> {
 }
 
 fn run_kokoro_conversion(
-    cli: &Cli,
+    cli: &ConvertArgs,
     input: &Path,
     book: &crate::book::CanonicalBook,
     plan: &crate::narration::NarrationPlan,
@@ -545,7 +552,7 @@ fn run_kokoro_conversion(
 }
 
 fn run_qwen_conversion(
-    cli: &Cli,
+    cli: &ConvertArgs,
     book: &crate::book::CanonicalBook,
     _plan: &crate::narration::NarrationPlan,
     options: &AudiobookBuildOptions,
@@ -572,12 +579,12 @@ fn resolve_prepared_path(path: &Path, input: &Path) -> Result<PathBuf> {
 
 fn segment_cache(cache_root: &Path) -> SegmentCache {
     SegmentCache::new(
-        std::env::var_os("KOKORO_BOOK_SEGMENT_CACHE_DIR")
+        std::env::var_os("AUDIOBOOK_FORGE_SEGMENT_CACHE_DIR")
             .map_or_else(|| cache_root.join("segments"), PathBuf::from),
     )
 }
 
-fn conversion_options(cli: &Cli, input: &Path) -> Result<AudiobookBuildOptions> {
+fn conversion_options(cli: &ConvertArgs, input: &Path) -> Result<AudiobookBuildOptions> {
     Ok(AudiobookBuildOptions {
         output_dir: cli
             .output
@@ -739,7 +746,7 @@ pub fn terminal_text(value: &str) -> String {
     value
         .chars()
         .map(|character| {
-            if character.is_control()
+            if (character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
                 || matches!(
                     character,
                     '\u{061c}'
