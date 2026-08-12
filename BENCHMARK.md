@@ -64,7 +64,7 @@ The EPUB integration suite packages the same passage into a generated two-docume
 Lean Misaki spells the unknown name `Elena` letter by letter. The original pronunciation measurement used the earlier PCM output path. The equivalent current M4B build is:
 
 ```sh
-target/release/audiobook-forge tests/fixtures/on-the-eve-elena.txt \
+target/release/audiobook-forge convert tests/fixtures/on-the-eve-elena.txt \
   --pronunciation 'Elena=ɪlˈeɪnə' \
   --output target/pronunciation-check \
   --quiet

@@ -17,17 +17,45 @@ fn help_describes_conversion_and_inspection() {
         .arg("--help")
         .assert()
         .success()
+        .stdout(predicate::str::contains("Usage: audiobook-forge <COMMAND>"))
+        .stdout(predicate::str::contains(
+            "audiobook-forge convert book.epub",
+        ))
+        .stdout(predicate::str::contains("convert"))
+        .stdout(predicate::str::contains("inspect"))
+        .stdout(predicate::str::contains("M4B"));
+}
+
+#[test]
+fn convert_help_describes_synthesis_options() {
+    Command::cargo_bin("audiobook-forge")
+        .expect("binary")
+        .args(["convert", "--help"])
+        .assert()
+        .success()
         .stdout(predicate::str::contains(
             "EPUB, DRM-free AZW3/MOBI, text-based PDF, HTML, Markdown, or TXT",
         ))
-        .stdout(predicate::str::contains("inspect"))
         .stdout(predicate::str::contains("--voice"))
         .stdout(predicate::str::contains("--provider"))
         .stdout(predicate::str::contains("--pronunciation"))
         .stdout(predicate::str::contains("--output"))
         .stdout(predicate::str::contains("--nav"))
-        .stdout(predicate::str::contains("--footnotes"))
-        .stdout(predicate::str::contains("M4B"));
+        .stdout(predicate::str::contains("--footnotes"));
+}
+
+#[test]
+fn bare_invocation_explains_that_conversion_is_explicit() {
+    Command::cargo_bin("audiobook-forge")
+        .expect("binary")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no command provided"))
+        .stderr(predicate::str::contains("Usage: audiobook-forge <COMMAND>"))
+        .stderr(predicate::str::contains(
+            "audiobook-forge convert book.epub",
+        ))
+        .stderr(predicate::str::contains('\u{fffd}').not());
 }
 
 #[test]
@@ -39,6 +67,7 @@ fn qwen_provider_rejects_unsupported_speed_before_runtime_setup() {
 
     Command::cargo_bin("audiobook-forge")
         .expect("binary")
+        .arg("convert")
         .arg(&input)
         .args(["--provider", "qwen", "--speed", "1.1"])
         .env("AUDIOBOOK_FORGE_CACHE_DIR", &cache)
@@ -62,6 +91,7 @@ fn qwen_provider_reports_a_missing_python_runtime_clearly() {
 
     Command::cargo_bin("audiobook-forge")
         .expect("binary")
+        .arg("convert")
         .arg(&input)
         .args(["--provider", "qwen", "--output"])
         .arg(&output)
@@ -303,6 +333,7 @@ fn conversion_reports_structural_warnings_before_synthesis() {
 
     Command::cargo_bin("audiobook-forge")
         .expect("binary")
+        .arg("convert")
         .arg(&input)
         .args(["--speed", "3"])
         .env("AUDIOBOOK_FORGE_CACHE_DIR", &cache)
@@ -339,6 +370,7 @@ fn errors_sanitize_terminal_control_characters() {
 
     Command::cargo_bin("audiobook-forge")
         .expect("binary")
+        .arg("convert")
         .arg(&input)
         .assert()
         .failure()
@@ -365,6 +397,7 @@ fn invalid_input_fails_before_any_download() {
 
     Command::cargo_bin("audiobook-forge")
         .expect("binary")
+        .arg("convert")
         .arg(&input)
         .env("AUDIOBOOK_FORGE_CACHE_DIR", temp.path().join("cache"))
         .assert()
@@ -396,6 +429,7 @@ fn invalid_options_fail_before_any_download() {
 
         Command::cargo_bin("audiobook-forge")
             .expect("binary")
+            .arg("convert")
             .arg(&input)
             .args(arguments)
             .env("AUDIOBOOK_FORGE_CACHE_DIR", &cache)
@@ -418,6 +452,7 @@ fn output_file_path_fails_before_model_setup() {
 
     Command::cargo_bin("audiobook-forge")
         .expect("binary")
+        .arg("convert")
         .arg(&input)
         .arg("--output")
         .arg(&output)

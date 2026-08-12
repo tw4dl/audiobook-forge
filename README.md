@@ -42,22 +42,26 @@ Qwen uses sampled generation with stable text-derived seeds. Its token budget sc
 
 ## Use
 
+Conversion is always explicit: use `convert` before the input path. A bare
+`audiobook-forge` invocation prints the command list and exits with an error;
+it never starts synthesis by accident.
+
 ```sh
-audiobook-forge book.epub
+audiobook-forge convert book.epub
 audiobook-forge inspect book.epub
 audiobook-forge inspect reference.pdf --tree
 audiobook-forge inspect reference.azw3 --tree
 audiobook-forge inspect notes.md --tree
-audiobook-forge notes.txt --output ./notes-audiobook
-audiobook-forge book.epub --voice af_sky --speed 1.1 --nav chapters
-audiobook-forge book.epub --footnotes end
+audiobook-forge convert notes.txt --output ./notes-audiobook
+audiobook-forge convert book.epub --voice af_sky --speed 1.1 --nav chapters
+audiobook-forge convert book.epub --footnotes end
 audiobook-forge voices
-audiobook-forge book.epub --provider qwen
-audiobook-forge book.epub --provider qwen --voice Ryan
+audiobook-forge convert book.epub --provider qwen
+audiobook-forge convert book.epub --provider qwen --voice Ryan
 
 # Compile narration before starting a TTS worker
 audiobook-forge preflight book.epub --output prepared/
-audiobook-forge book.epub --prepared prepared/
+audiobook-forge convert book.epub --prepared prepared/
 ```
 
 For `book.epub`, the default output is:
@@ -93,8 +97,8 @@ MOBI and AZW3 files are limited to 128 MiB, 50,000 Palm database records, 128 Mi
 The lean phonemizer has no eSpeak fallback. It may spell unknown names and rare words letter by letter. Add an IPA override for each book-specific word:
 
 ```sh
-audiobook-forge book.epub --pronunciation 'Elena=ɪlˈeɪnə'
-audiobook-forge book.epub \
+audiobook-forge convert book.epub --pronunciation 'Elena=ɪlˈeɪnə'
+audiobook-forge convert book.epub \
   --pronunciation 'Elena=ɪlˈeɪnə' \
   --pronunciation 'Cormer=kˈɔɹmɚ'
 ```
@@ -149,6 +153,10 @@ Set `AUDIOBOOK_FORGE_SEGMENT_CACHE_DIR` to isolate segment WAVs while reusing th
 `book.audionav.json` uses schema version 1. It contains a hierarchical TOC, duration, page cues when the source has meaningful pages, paragraph and sentence cues, timestamps, stable section IDs, and source ranges.
 
 `book.manifest.json` uses schema version 1. It records the source path and SHA-256 hash, source format, tool and importer versions, detected metadata, provider/model/voice identity, configuration hash, pronunciation overrides, phoneme normalization version, automatic repair counts by rule, speed, footnote and chapter policies, pause/retry settings, AAC settings, warnings, output files, build time, duration, and counts. It does not record API keys or other credentials.
+
+These JSON files are `audiobook-forge` sidecars, not a claim of conformance to an audiobook distribution standard. `book.audionav.json` is an application navigation index for mapping semantic source locations to millisecond offsets. `book.manifest.json` is a reproducibility and provenance record. Most audiobook players do not need either file; they open the M4B and read its embedded metadata and chapters.
+
+The [W3C Audiobooks Recommendation](https://www.w3.org/TR/audiobooks/) and the [Readium Audiobook Profile](https://readium.org/webpub-manifest/profiles/audiobook.html) define interoperable JSON-LD manifests for distribution. Those manifests use fields such as `@context`, `conformsTo`, `readingOrder`, `resources`, `toc`, and `duration`, and they describe linked audio resources. Our sidecars use a different schema (`duration_ms`, source ranges, paragraph/sentence mappings, and build provenance) and describe one already-assembled M4B. They are therefore not drop-in W3C/Readium manifests and should not be labeled `application/audiobook+json`.
 
 The generated M4B has been tested in VLC 3.0.23 on macOS, including forward and backward chapter selection. See [PLAYER_COMPATIBILITY.md](PLAYER_COMPATIBILITY.md) for the exact build, independent metadata check, and player transcript.
 

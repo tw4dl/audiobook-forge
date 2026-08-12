@@ -8,7 +8,7 @@ The public CLI built a real Kokoro audiobook from the checked-in two-chapter, DR
 
 ```sh
 cargo run -- \
-  tests/fixtures/kindle/with-cover.azw3 \
+  convert tests/fixtures/kindle/with-cover.azw3 \
   --output target/player-proof/kindle-cover \
   --nav chapters
 ```
