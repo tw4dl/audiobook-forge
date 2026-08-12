@@ -4,20 +4,26 @@ use anyhow::{Context, Result, bail};
 
 use crate::chunk::chunk_text;
 use crate::phoneme::{Phonemizer, Pronunciation};
-use crate::vocab;
+use crate::vocab::{self, PhonemeNormalizationStats};
 use crate::voice::Voice;
+
+pub(crate) struct PhonemizationResult {
+    pub(crate) chunks: Vec<String>,
+    pub(crate) normalization: PhonemeNormalizationStats,
+}
 
 pub(crate) fn phonemize_book(
     text: &str,
     voice: Voice,
     pronunciations: &[Pronunciation],
     max_phonemes: usize,
-) -> Result<Vec<String>> {
+) -> Result<PhonemizationResult> {
     let sentences = extract_sentences(text);
     if sentences.is_empty() {
         bail!("input contains no readable text");
     }
     let phonemizer = Phonemizer::new(voice.is_british(), pronunciations);
+    let mut normalization = PhonemeNormalizationStats::default();
     let phoneme_sentences = sentences
         .iter()
         .enumerate()
@@ -25,7 +31,8 @@ pub(crate) fn phonemize_book(
             let phonemes = phonemizer
                 .phonemize(sentence)
                 .with_context(|| format!("failed to phonemize sentence {}", index + 1))?;
-            vocab::normalized_phonemes(&phonemes)
+            normalization.add_assign(&phonemes.stats);
+            vocab::normalized_phonemes(&phonemes.phonemes)
                 .with_context(|| format!("invalid phonemes in sentence {}", index + 1))
         })
         .collect::<Result<Vec<_>>>()?;
@@ -33,7 +40,10 @@ pub(crate) fn phonemize_book(
     for (index, chunk) in chunks.iter().enumerate() {
         vocab::token_ids(chunk).with_context(|| format!("invalid phoneme chunk {}", index + 1))?;
     }
-    Ok(chunks)
+    Ok(PhonemizationResult {
+        chunks,
+        normalization,
+    })
 }
 
 /// Extract sentence-sized prose units while keeping terminal punctuation.

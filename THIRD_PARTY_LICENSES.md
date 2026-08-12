@@ -9,6 +9,8 @@ The optional native features that could add eSpeak are disabled:
 ```toml
 misaki-rs = { version = "0.3.0", default-features = false }
 rbook = { version = "0.7.10", default-features = false }
+lopdf = { version = "0.44.0", default-features = false }
+encoding_rs = { version = "0.8.35", default-features = false }
 
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
 mlx-memory-control = { version = "0.1.0", path = "crates/mlx-memory-control" }
@@ -42,9 +44,16 @@ If either file changes, the clarification stops matching and the audit fails or 
 | MLX C sources bundled by `mlx-sys` | Apple MLX native runtime | MIT | [`ml-explore/mlx`](https://github.com/ml-explore/mlx) |
 | `mach-sys` 0.5.4 | Mach memory APIs used by `mlx-rs` | GPL-3.0 OR Apache-2.0; this project uses Apache-2.0 | [`delta4chat/mach`](https://github.com/delta4chat/mach) |
 | `misaki-rs` 0.3.0 | English G2P | MIT | [`MicheleYin/misaki-rs`](https://github.com/MicheleYin/misaki-rs) |
+| `html5ever` 0.39.0 | Standards-based HTML tree construction | MIT OR Apache-2.0 | [`servo/html5ever`](https://github.com/servo/html5ever) |
+| `pulldown-cmark` 0.13.4 | CommonMark parsing and source offsets | MIT | [`pulldown-cmark/pulldown-cmark`](https://github.com/pulldown-cmark/pulldown-cmark) |
+| `quick-xml` 0.41.0 | EPUB encryption-manifest validation | MIT | [`tafia/quick-xml`](https://github.com/tafia/quick-xml) |
+| `zip` 8.6.0 | EPUB archive size and encryption preflight | MIT | [`zip-rs/zip2`](https://github.com/zip-rs/zip2) |
+| `lopdf` 0.44.0 | Bounded PDF parsing, text extraction, metadata, and outlines | MIT | [`J-F-Liu/lopdf`](https://github.com/J-F-Liu/lopdf) |
+| `encoding_rs` 0.8.35 | Standards-based Windows-1252 decoding for legacy MOBI | MIT OR Apache-2.0 | [`hsivonen/encoding_rs`](https://github.com/hsivonen/encoding_rs) |
 | Original Misaki English lexicons and G2P data | Four embedded US/GB gold/silver dictionaries plus POS classes, tags, and weights carried by `misaki-rs` | Apache-2.0 | [`hexgrad/misaki`](https://github.com/hexgrad/misaki) |
 | `language-tokenizer` 0.1.0 | Transitive Misaki tokenization | WTFPL | [`savannstm/language-tokenizer`](https://github.com/savannstm/language-tokenizer/tree/86f2cbc67384d9913186c3ae0b3e862359349c31) |
 | `rbook` 0.7.10 | EPUB 2 and 3 reading | Apache-2.0 | [`DevinSterling/rbook`](https://github.com/DevinSterling/rbook) |
+| `mlx-audio` 0.4.8, optional | Qwen3-TTS inference in an isolated Python runtime | MIT | [`Blaizzy/mlx-audio` revision `49596ac`](https://github.com/Blaizzy/mlx-audio/tree/49596ac8b69b9ed377db311a73df838795f38a3d) |
 
 The remaining locked Rust packages use a license expression with at least one branch in the allow list: Apache-2.0, BSD-3-Clause, CDLA-Permissive-2.0, ISC, MIT, MPL-2.0, Unicode-3.0, WTFPL, or Zlib. Exact package versions, registry checksums, target conditions, and full expressions are fixed in `Cargo.lock` and checked by `cargo-deny` for both `aarch64-apple-darwin` and `x86_64-unknown-linux-gnu`.
 
@@ -75,4 +84,8 @@ The CLI pins [`mlx-community/Kokoro-82M-bf16`](https://huggingface.co/mlx-commun
 | Kokoro v1.0 configuration embedded by `voice-tts` | Model architecture and vocabulary | Apache-2.0 model data; MIT `voice-tts` package |
 | Kokoro v1.0 phoneme vocabulary in `src/vocab.rs` | Input validation and normalization | Apache-2.0; copied from [`hexgrad/Kokoro-82M` revision `f3ff3571`](https://huggingface.co/hexgrad/Kokoro-82M/blob/f3ff3571791e39611d31c381e3a41a3af07b4987/config.json) |
 
-The CLI does not download another model, a combined voice bundle, eSpeak, or ONNX Runtime.
+The Kokoro provider does not download another model, a combined voice bundle, eSpeak, or ONNX Runtime.
+
+## Optional downloaded Qwen assets
+
+`--provider qwen` uses [`mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-6bit`](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-6bit/tree/7dc92af14613355896fcab13b268c19ede233139) at revision `7dc92af14613355896fcab13b268c19ede233139`. Its model card declares Apache-2.0. The pinned snapshot is 1,833,590,308 bytes and includes the Qwen speech tokenizer. The setup script installs `mlx-audio` and its Python dependencies into a separate cache environment; none are linked into the Rust binary.

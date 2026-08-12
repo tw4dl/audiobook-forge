@@ -3,9 +3,9 @@ name = "kokoro-book"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
-description = "A small offline EPUB and text-to-audiobook CLI powered by Kokoro"
+description = "A local ebook-to-audiobook CLI with Kokoro and optional Qwen3-TTS"
 license = "Apache-2.0"
-repository = "https://github.com/tw4dl/kokoro-book"
+repository = "https://github.com/tw4dl/audiobook-forge"
 keywords = ["audiobook", "epub", "kokoro", "tts"]
 categories = ["command-line-utilities", "multimedia::audio"]
 
@@ -16,15 +16,23 @@ members = ["crates/mlx-memory-control"]
 anyhow = "1.0.102"
 clap = { version = "4.5.60", features = ["derive"] }
 directories = "6.0.0"
+encoding_rs = { version = "0.8.35", default-features = false }
 hound = "3.5.1"
+html5ever = "0.39.0"
 html2text = "0.17.1"
 indicatif = "0.18.3"
+lopdf = { version = "0.44.0", default-features = false }
 misaki-rs = { version = "0.3.0", default-features = false }
+pulldown-cmark = { version = "0.13.4", default-features = false }
+quick-xml = "0.41.0"
 rbook = { version = "0.7.10", default-features = false }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
 sha2 = "0.10.9"
 tempfile = "3.23.0"
 thiserror = "2.0.17"
 ureq = { version = "2.12.1", default-features = false, features = ["tls"] }
+zip8 = { package = "zip", version = "8.6.0", default-features = false }
 
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
 mlx-memory-control = { version = "0.1.0", path = "crates/mlx-memory-control" }

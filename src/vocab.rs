@@ -7,6 +7,67 @@ use anyhow::{Result, bail};
 
 // MLX voice packs have 510 frames indexed by phoneme count minus one.
 pub const MAX_PHONEMES: usize = 510;
+pub(crate) const PHONEME_NORMALIZATION_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct PhonemeNormalizationStats {
+    pub(crate) automatic_repairs: usize,
+    pub(crate) syllabic_consonant: usize,
+}
+
+impl PhonemeNormalizationStats {
+    pub(crate) fn add_assign(&mut self, other: &Self) {
+        self.automatic_repairs += other.automatic_repairs;
+        self.syllabic_consonant += other.syllabic_consonant;
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NormalizedPhonemes {
+    pub(crate) phonemes: String,
+    pub(crate) stats: PhonemeNormalizationStats,
+}
+
+/// Normalize Misaki output to the Kokoro phoneme vocabulary.
+///
+/// The source text is not involved in this transformation. Only the known
+/// syllabic-consonant compatibility marker is repaired; unrelated characters
+/// remain in the result so vocabulary validation can report them.
+pub(crate) fn normalize_for_kokoro(raw_phonemes: &str) -> NormalizedPhonemes {
+    let mut phonemes = String::with_capacity(raw_phonemes.len());
+    let mut stats = PhonemeNormalizationStats::default();
+
+    for raw in raw_phonemes.chars() {
+        if matches!(raw, '\u{200c}' | '\u{200d}' | '\u{feff}') {
+            continue;
+        }
+        if raw == '\u{0329}' {
+            let Some(previous) = phonemes.pop() else {
+                phonemes.push(raw);
+                continue;
+            };
+            let replacement = match previous {
+                'n' => "ən",
+                'l' => "əl",
+                'm' => "əm",
+                'ɹ' => "əɹ",
+                'r' => "ər",
+                other => {
+                    phonemes.push(other);
+                    phonemes.push(raw);
+                    continue;
+                }
+            };
+            phonemes.push_str(replacement);
+            stats.automatic_repairs += 1;
+            stats.syllabic_consonant += 1;
+            continue;
+        }
+        phonemes.push(raw);
+    }
+
+    NormalizedPhonemes { phonemes, stats }
+}
 
 const VOCAB: &[(char, i64)] = &[
     (';', 1),
@@ -156,10 +217,10 @@ pub fn token_ids(phonemes: &str) -> Result<Vec<i64>> {
 pub(crate) fn normalized_phonemes(phonemes: &str) -> Result<String> {
     let mut normalized = String::with_capacity(phonemes.len());
     let mut unsupported = Vec::new();
+    let phonemes = normalize_for_kokoro(phonemes).phonemes;
 
     for raw in phonemes.chars() {
         let phone = match raw {
-            '\u{200c}' | '\u{200d}' | '\u{feff}' => continue,
             'ɝ' => 'ɚ',
             '`' | '´' => 'ˈ',
             other => other,
@@ -197,7 +258,61 @@ pub fn supports(phonemes: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalized_phonemes, token_ids};
+    use super::{normalize_for_kokoro, normalized_phonemes, token_ids};
+
+    #[test]
+    fn normalizes_syllabic_n_without_touching_source_text() {
+        let raw = "ɹˈɪʔn̩";
+        let normalized = normalize_for_kokoro(raw);
+
+        assert_eq!(normalized.phonemes, "ɹˈɪʔən");
+        assert_eq!(normalized.stats.automatic_repairs, 1);
+        assert_eq!(normalized.stats.syllabic_consonant, 1);
+        assert_eq!(raw, "ɹˈɪʔn̩");
+    }
+
+    #[test]
+    fn normalizes_common_syllabic_words() {
+        for (raw, expected) in [
+            ("sˈɜːʔn̩", "sˈɜːʔən"),
+            ("fɹˈaɪʔn̩d", "fɹˈaɪʔənd"),
+            ("hˈaɪʔn̩d", "hˈaɪʔənd"),
+            ("ɛnlˈaɪʔn̩ɪŋ", "ɛnlˈaɪʔənɪŋ"),
+        ] {
+            assert_eq!(normalize_for_kokoro(raw).phonemes, expected);
+        }
+    }
+
+    #[test]
+    fn normalizes_all_supported_syllabic_consonants() {
+        let normalized = normalize_for_kokoro("n̩ l̩ m̩ ɹ̩ r̩");
+
+        assert_eq!(normalized.phonemes, "ən əl əm əɹ ər");
+        assert_eq!(normalized.stats.automatic_repairs, 5);
+    }
+
+    #[test]
+    fn leaves_unrelated_unsupported_characters_diagnosable() {
+        let normalized = normalize_for_kokoro("h🙂");
+
+        assert_eq!(normalized.phonemes, "h🙂");
+        assert_eq!(normalized.stats.automatic_repairs, 0);
+        let error = normalized_phonemes(&normalized.phonemes).expect_err("unknown phoneme");
+        assert!(
+            error
+                .to_string()
+                .contains("unsupported phoneme characters '🙂'")
+        );
+    }
+
+    #[test]
+    fn normalization_is_idempotent() {
+        let first = normalize_for_kokoro("ɹˈɪʔn̩ l̩");
+        let second = normalize_for_kokoro(&first.phonemes);
+
+        assert_eq!(first.phonemes, second.phonemes);
+        assert_eq!(second.stats.automatic_repairs, 0);
+    }
 
     #[test]
     fn pads_and_normalizes_phonemes() {

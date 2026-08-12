@@ -1,0 +1,5 @@
+book|Book|Navigation by Design|-|blocks:0
+  toc-part|Part|Part One|/EPUB/part.xhtml#part-one|blocks:1
+    toc-chapter-one|Chapter|Chapter One|/EPUB/chapter-1.xhtml#chapter-one|blocks:2
+      toc-why|Section|Why It Matters|/EPUB/chapter-1.xhtml#café|blocks:4
+    toc-chapter-two|Chapter|Chapter Two|/EPUB/chapter-2.xhtml#chapter-two|blocks:1

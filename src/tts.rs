@@ -1,46 +1,175 @@
-//! Kokoro MLX worker orchestration and streamed audiobook output.
-
-use std::path::{Path, PathBuf};
+//! Kokoro MLX provider adapter.
 
 use anyhow::{Context, Result, bail};
-use indicatif::{ProgressBar, ProgressStyle};
+use sha2::{Digest, Sha256};
 
-use crate::audio::{SAMPLE_RATE, StreamingWav};
-use crate::model::ModelAssets;
+use crate::audio::SAMPLE_RATE;
+use crate::model::{MODEL_BUNDLE_NAME, MODEL_REVISION, ModelAssets};
 use crate::phoneme::Pronunciation;
 use crate::pipeline::phonemize_book;
+use crate::synthesis::{
+    PhonemeNormalizationReport, TtsAudio, TtsInputMode, TtsProvider, TtsProviderDiagnostics,
+    TtsProviderIdentity, TtsRequest,
+};
 use crate::vocab;
 use crate::voice::Voice;
 use crate::worker::{
-    ProcessWorker, WorkerLaunch, WorkerLimits, WorkerStats, synthesize_with_split_retry,
+    ChunkWorker, ProcessWorker, WorkerLaunch, WorkerLimits, WorkerStats,
+    synthesize_with_split_retry,
 };
 
-const SILENCE_MS: u32 = 120;
 pub const DEFAULT_MAX_PHONEMES: usize = 200;
+pub const DEFAULT_PROVIDER_MAX_CHARACTERS: usize = 400;
 
-#[derive(Debug, Clone)]
-pub(crate) struct SynthesisReport {
-    pub(crate) output: PathBuf,
-    pub(crate) chunks: usize,
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct KokoroProviderReport {
     pub(crate) worker_requests: usize,
     pub(crate) worker_restarts: usize,
     pub(crate) model_load_seconds: f64,
     pub(crate) synthesis_seconds: f64,
-    pub(crate) audio_seconds: f64,
-    pub(crate) rtf: f64,
-    pub(crate) peak_amplitude: f32,
     pub(crate) memory: WorkerStats,
 }
 
-pub(crate) struct SynthesisOptions<'a> {
-    pub(crate) text: &'a str,
-    pub(crate) output: &'a Path,
-    pub(crate) voice: Voice,
-    pub(crate) pronunciations: &'a [Pronunciation],
-    pub(crate) speed: f32,
-    pub(crate) max_phonemes: usize,
-    pub(crate) quiet: bool,
-    pub(crate) worker_limits: WorkerLimits,
+pub(crate) struct KokoroTtsProvider<W = ProcessWorker> {
+    identity: TtsProviderIdentity,
+    worker: Option<W>,
+    voice: Voice,
+    pronunciations: Vec<Pronunciation>,
+    max_phonemes: usize,
+    synthesis_seconds: f64,
+    phoneme_normalization: PhonemeNormalizationReport,
+}
+
+impl KokoroTtsProvider<ProcessWorker> {
+    pub(crate) fn launch(
+        assets: &ModelAssets,
+        voice: Voice,
+        pronunciations: &[Pronunciation],
+        max_phonemes: usize,
+        limits: WorkerLimits,
+    ) -> Result<Self> {
+        validate_settings(1.0, max_phonemes)?;
+        let worker = ProcessWorker::launch(WorkerLaunch {
+            model_dir: assets.root.clone(),
+            voice_file: assets.voice.clone(),
+            limits,
+        })?;
+        Ok(Self::new(worker, voice, pronunciations, max_phonemes))
+    }
+
+    pub(crate) fn finish(mut self) -> Result<KokoroProviderReport> {
+        let worker = self.worker.take().context("MLX worker is unavailable")?;
+        let report = KokoroProviderReport {
+            worker_requests: worker.requests(),
+            worker_restarts: worker.restarts(),
+            model_load_seconds: worker.total_model_load_seconds(),
+            synthesis_seconds: self.synthesis_seconds,
+            memory: worker.latest_stats(),
+        };
+        worker.finish()?;
+        Ok(report)
+    }
+}
+
+impl<W: ChunkWorker> KokoroTtsProvider<W> {
+    fn new(worker: W, voice: Voice, pronunciations: &[Pronunciation], max_phonemes: usize) -> Self {
+        let overrides = pronunciations
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        Self {
+            identity: TtsProviderIdentity {
+                provider: "kokoro-mlx".to_owned(),
+                model: format!("{MODEL_BUNDLE_NAME}@{MODEL_REVISION}"),
+                voice: voice.name().to_owned(),
+                language: Some(if voice.is_british() { "en-GB" } else { "en-US" }.to_owned()),
+                configuration_hash: configuration_hash(voice, &overrides, max_phonemes),
+                max_characters: DEFAULT_PROVIDER_MAX_CHARACTERS,
+                sample_rate: SAMPLE_RATE,
+            },
+            worker: Some(worker),
+            voice,
+            pronunciations: pronunciations.to_vec(),
+            max_phonemes,
+            synthesis_seconds: 0.0,
+            phoneme_normalization: PhonemeNormalizationReport::default(),
+        }
+    }
+}
+
+impl<W: ChunkWorker> TtsProvider for KokoroTtsProvider<W> {
+    fn identity(&self) -> &TtsProviderIdentity {
+        &self.identity
+    }
+
+    fn input_mode(&self) -> TtsInputMode {
+        TtsInputMode::PreparedPhonemes
+    }
+
+    fn diagnostics(&self) -> TtsProviderDiagnostics {
+        TtsProviderDiagnostics {
+            phoneme_normalization: self.phoneme_normalization.clone(),
+        }
+    }
+
+    fn synthesize(&mut self, request: &TtsRequest) -> Result<TtsAudio> {
+        let chunks = if let Some(prepared) = request.phoneme_chunks.as_ref() {
+            for chunk in prepared {
+                vocab::token_ids(chunk)?;
+            }
+            prepared.clone()
+        } else {
+            let phonemization = phonemize_book(
+                &request.text,
+                self.voice,
+                &self.pronunciations,
+                self.max_phonemes,
+            )?;
+            self.phoneme_normalization.automatic_repairs +=
+                phonemization.normalization.automatic_repairs;
+            self.phoneme_normalization.syllabic_consonant +=
+                phonemization.normalization.syllabic_consonant;
+            phonemization.chunks
+        };
+        let worker = self.worker.as_mut().context("MLX worker is unavailable")?;
+        let mut samples = Vec::new();
+        for chunk in chunks {
+            for audio in synthesize_with_split_retry(worker, &chunk, request.speed)? {
+                self.synthesis_seconds += audio.synthesis_seconds;
+                samples
+                    .try_reserve(audio.samples.len())
+                    .context("Kokoro audio response is too large")?;
+                samples.extend_from_slice(&audio.samples);
+            }
+        }
+        if samples.is_empty() {
+            bail!("Kokoro returned no audio samples");
+        }
+        Ok(TtsAudio {
+            samples,
+            sample_rate: SAMPLE_RATE,
+        })
+    }
+}
+
+pub(crate) fn configuration_hash(
+    voice: Voice,
+    overrides: &[String],
+    max_phonemes: usize,
+) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"kokoro-book-provider-v1\0");
+    digest.update(crate::vocab::PHONEME_NORMALIZATION_VERSION.to_le_bytes());
+    digest.update(MODEL_REVISION.as_bytes());
+    digest.update([0]);
+    digest.update(voice.name().as_bytes());
+    digest.update([0]);
+    digest.update(max_phonemes.to_le_bytes());
+    for value in overrides {
+        digest.update(value.as_bytes());
+        digest.update([0]);
+    }
+    format!("{:x}", digest.finalize())
 }
 
 /// Check synthesis settings before model setup.
@@ -74,99 +203,83 @@ pub fn ensure_supported_platform() -> Result<()> {
     }
 }
 
-/// Load Kokoro once in an isolated worker, synthesize bounded phoneme chunks,
-/// and atomically stream one WAV.
-///
-/// # Errors
-///
-/// Returns an error for G2P, worker, memory, PCM, or output failures.
-pub(crate) fn synthesize_to_wav(
-    assets: &ModelAssets,
-    options: &SynthesisOptions<'_>,
-) -> Result<SynthesisReport> {
-    validate_settings(options.speed, options.max_phonemes)?;
-    ensure_supported_platform()?;
-    let chunks = phonemize_book(
-        options.text,
-        options.voice,
-        options.pronunciations,
-        options.max_phonemes,
-    )?;
-    if chunks.is_empty() {
-        bail!("input contains no readable text");
+#[cfg(test)]
+mod tests {
+    use anyhow::Result;
+
+    use super::{KokoroTtsProvider, TtsProvider, TtsRequest};
+    use crate::phoneme::Pronunciation;
+    use crate::voice::Voice;
+    use crate::worker::{ChunkAudio, ChunkWorker};
+
+    #[derive(Default)]
+    struct RecordingWorker {
+        requests: Vec<String>,
     }
 
-    let launch = WorkerLaunch {
-        model_dir: assets.root.clone(),
-        voice_file: assets.voice.clone(),
-        limits: options.worker_limits,
-    };
-    let mut worker = ProcessWorker::launch(launch)?;
-    let mut output = StreamingWav::create(options.output)?;
-    let progress = synthesis_progress(chunks.len() as u64, options.quiet);
-    let mut synthesis_seconds = 0.0;
-    let mut speech_samples = 0_u64;
-    let mut memory = worker.latest_stats();
-
-    for (index, chunk) in chunks.iter().enumerate() {
-        let generated = synthesize_with_split_retry(&mut worker, chunk, options.speed)?;
-        for audio in generated {
-            synthesis_seconds += audio.synthesis_seconds;
-            speech_samples = speech_samples
-                .checked_add(
-                    u64::try_from(audio.samples.len()).context("audio chunk is too large")?,
-                )
-                .context("audiobook sample count overflow")?;
-            memory.active_bytes = audio.stats.active_bytes;
-            memory.cached_bytes = audio.stats.cached_bytes;
-            memory.peak_bytes = memory.peak_bytes.max(audio.stats.peak_bytes);
-            output.write_chunk(&audio.samples)?;
+    impl ChunkWorker for RecordingWorker {
+        fn synthesize(&mut self, phonemes: &str, _speed: f32) -> Result<ChunkAudio> {
+            self.requests.push(phonemes.to_owned());
+            Ok(ChunkAudio::from_samples(vec![0.125; phonemes.len().max(1)]))
         }
-        if index + 1 < chunks.len() {
-            output.write_silence_ms(SILENCE_MS)?;
+
+        fn restart(&mut self) -> Result<()> {
+            Ok(())
         }
-        progress.inc(1);
-    }
-    progress.finish_and_clear();
-
-    let worker_requests = worker.requests();
-    let worker_restarts = worker.restarts();
-    let model_load_seconds = worker.total_model_load_seconds();
-    worker.finish()?;
-    let audio = output.finish()?;
-    let audio_seconds = samples_to_seconds(audio.samples);
-    let speech_seconds = samples_to_seconds(speech_samples);
-    if speech_seconds == 0.0 {
-        bail!("Kokoro returned no audio samples");
     }
 
-    Ok(SynthesisReport {
-        output: audio.output,
-        chunks: chunks.len(),
-        worker_requests,
-        worker_restarts,
-        model_load_seconds,
-        synthesis_seconds,
-        audio_seconds,
-        rtf: synthesis_seconds / speech_seconds,
-        peak_amplitude: audio.peak_amplitude,
-        memory,
-    })
-}
+    #[test]
+    fn provider_phonemizes_semantic_text_and_returns_pcm() {
+        let voice: Voice = "af_heart".parse().expect("voice");
+        let mut provider = KokoroTtsProvider::new(RecordingWorker::default(), voice, &[], 200);
 
-#[allow(clippy::cast_precision_loss)]
-fn samples_to_seconds(sample_count: u64) -> f64 {
-    sample_count as f64 / f64::from(SAMPLE_RATE)
-}
+        let audio = provider
+            .synthesize(&TtsRequest {
+                text: "Hello world.".to_owned(),
+                speed: 1.0,
+                phoneme_chunks: None,
+            })
+            .expect("audio");
 
-fn synthesis_progress(length: u64, quiet: bool) -> ProgressBar {
-    if quiet {
-        return ProgressBar::hidden();
+        assert_eq!(audio.sample_rate, 24_000);
+        assert!(!audio.samples.is_empty());
+        assert_eq!(provider.worker.expect("worker").requests.len(), 1);
     }
-    let progress = ProgressBar::new(length);
-    progress.set_style(
-        ProgressStyle::with_template("{spinner:.cyan} [{bar:32.cyan/blue}] {pos}/{len} chunks")
-            .unwrap_or_else(|_| ProgressStyle::default_bar()),
-    );
-    progress
+
+    #[test]
+    fn provider_reports_silent_syllabic_consonant_repairs() {
+        let voice: Voice = "af_heart".parse().expect("voice");
+        let mut provider = KokoroTtsProvider::new(RecordingWorker::default(), voice, &[], 200);
+
+        provider
+            .synthesize(&TtsRequest {
+                text: "Written and certain.".to_owned(),
+                speed: 1.0,
+                phoneme_chunks: None,
+            })
+            .expect("audio");
+
+        let report = provider.diagnostics().phoneme_normalization;
+        assert!(report.automatic_repairs >= 2);
+        assert_eq!(report.automatic_repairs, report.syllabic_consonant);
+    }
+
+    #[test]
+    fn cache_identity_changes_with_pronunciation_and_chunk_policy() {
+        let voice: Voice = "af_heart".parse().expect("voice");
+        let override_value: Pronunciation = "Elena=ɪlˈeɪnə".parse().expect("override");
+        let baseline = KokoroTtsProvider::new(RecordingWorker::default(), voice, &[], 200);
+        let overridden =
+            KokoroTtsProvider::new(RecordingWorker::default(), voice, &[override_value], 200);
+        let smaller = KokoroTtsProvider::new(RecordingWorker::default(), voice, &[], 100);
+
+        assert_ne!(
+            baseline.identity().configuration_hash,
+            overridden.identity().configuration_hash
+        );
+        assert_ne!(
+            baseline.identity().configuration_hash,
+            smaller.identity().configuration_hash
+        );
+    }
 }

@@ -17,7 +17,7 @@ Date: 2026-08-10
 - One fresh CLI and one fresh worker per sample; model files already cached
 - One synthesis worker; no parallel TTS requests
 
-RTF is worker synthesis wall time divided by generated speech duration. It includes MLX evaluation and the copy from the MLX array. It excludes model loading, G2P, inserted sentence silence, and WAV I/O. Model loading is reported separately.
+RTF is worker synthesis wall time divided by generated speech duration. It includes MLX evaluation and the copy from the MLX array. It excludes model loading, G2P, inserted sentence silence, cache-WAV I/O, and M4B assembly. Model loading is reported separately.
 
 MLX peak and cached bytes come from the checked MLX C API after every chunk. Worker footprint comes from `/usr/bin/time -l`, wrapped around only the isolated worker through `KOKORO_BOOK_WORKER_TIME_LOG`.
 
@@ -59,12 +59,14 @@ Network time is connection-specific. The model-load value measures loading the v
 
 The real-book fixture uses a sentence from chapter IV of [*On the Eve* by Ivan Turgenev, translated by Constance Garnett](https://www.gutenberg.org/files/6902/6902-h/6902-h.htm). Project Gutenberg identifies its source text as unrestricted by U.S. copyright law. The repository fixture contains only the tested passage, without Project Gutenberg branding or license text.
 
-Lean Misaki spells the unknown name `Elena` letter by letter. The override test used:
+The EPUB integration suite packages the same passage into a generated two-document EPUB. Its authored TOC is intentionally reversed. The regression proves that final chapter and narration order still follow the EPUB spine.
+
+Lean Misaki spells the unknown name `Elena` letter by letter. The original pronunciation measurement used the earlier PCM output path. The equivalent current M4B build is:
 
 ```sh
 target/release/kokoro-book tests/fixtures/on-the-eve-elena.txt \
   --pronunciation 'Elena=ɪlˈeɪnə' \
-  --output corrected.wav \
+  --output target/pronunciation-check \
   --quiet
 ```
 
@@ -75,7 +77,7 @@ Homebrew `openai-whisper` `20250625_3` with `tiny.en` produced this exact recogn
 | No override | `Why so inquired, E-L-E-N, a one with thank you were speaking of some spiteful, disagreeable old woman. She is a pretty young girl.` |
 | `Elena=ɪlˈeɪnə` | `Why so inquired Elena one would think you were speaking of some spiteful disagreeable old woman. She is a pretty young girl` |
 
-The corrected WAV SHA-256 for this run was `66d9d1d7ff9b3561e8c25823816e8951105fc6b261177257c6de477d1b580ed4`. `ffprobe` reported mono `pcm_s16le` at 24 kHz and 7.90 seconds. `ffmpeg astats` reported peak `-10.53 dB`, RMS `-28.75 dB`, flat factor `0`, and 189,600 samples. The streaming writer rejects NaN, infinite, full-scale, and out-of-range PCM before it can commit the output file. Kokoro's active noise path means repeated WAV files are not expected to be byte-identical.
+For the historical PCM run, the corrected WAV SHA-256 was `66d9d1d7ff9b3561e8c25823816e8951105fc6b261177257c6de477d1b580ed4`. `ffprobe` reported mono `pcm_s16le` at 24 kHz and 7.90 seconds. `ffmpeg astats` reported peak `-10.53 dB`, RMS `-28.75 dB`, flat factor `0`, and 189,600 samples. The current cache writer rejects NaN, infinite, full-scale, and out-of-range PCM before persistence. Kokoro's active noise path means repeated audio files are not expected to be byte-identical.
 
 Whisper is an intelligibility proxy, not a human listening score.
 
