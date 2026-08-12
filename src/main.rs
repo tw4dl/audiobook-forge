@@ -1,10 +1,10 @@
 #![forbid(unsafe_code)]
 
 fn main() {
-    if let Err(error) = kokoro_book::cli::run() {
+    if let Err(error) = audiobook_forge::cli::run() {
         eprintln!(
             "error: {}",
-            kokoro_book::cli::terminal_text(&format!("{error:#}"))
+            audiobook_forge::cli::terminal_text(&format!("{error:#}"))
         );
         std::process::exit(1);
     }

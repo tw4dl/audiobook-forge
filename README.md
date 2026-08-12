@@ -3,9 +3,9 @@
 [![CI](https://github.com/tw4dl/audiobook-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/tw4dl/audiobook-forge/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-A local-first audiobook forge. The `kokoro-book` CLI turns an English EPUB, DRM-free AZW3/MOBI, text-based PDF, HTML, Markdown, or UTF-8 TXT file into a navigable M4B audiobook. Kokoro is the default provider. An opt-in Qwen3-TTS provider adds a larger English voice model on Apple Silicon.
+A local-first audiobook forge. The `audiobook-forge` CLI turns an English EPUB, DRM-free AZW3/MOBI, text-based PDF, HTML, Markdown, or UTF-8 TXT file into a navigable M4B audiobook. Kokoro is the default provider. An opt-in Qwen3-TTS provider adds a larger English voice model on Apple Silicon.
 
-Navigation is a primary feature. `kokoro-book` keeps authored parts, chapters, sections, pages, paragraphs, sentences, and source locations separate from internal TTS chunks. The M4B exposes useful player chapters. A richer sidecar keeps the detail needed for later page, paragraph, search, and synchronized-text navigation.
+Navigation is a primary feature. `audiobook-forge` keeps authored parts, chapters, sections, pages, paragraphs, sentences, and source locations separate from internal TTS chunks. The M4B exposes useful player chapters. A richer sidecar keeps the detail needed for later page, paragraph, search, and synchronized-text navigation.
 
 The default Kokoro path stays native Rust with one isolated MLX worker and no Python. The optional Qwen path uses one isolated Python/MLX worker. Neither path needs a server, GUI, API key, eSpeak, ONNX Runtime, or voice cloning.
 
@@ -21,8 +21,11 @@ You need:
 
 ```sh
 brew install cmake ffmpeg
-cargo install --git https://github.com/tw4dl/audiobook-forge --locked
+cargo install --git https://github.com/tw4dl/audiobook-forge --locked --root "$HOME"
 ```
+
+This installs the executable at `~/bin/audiobook-forge`. Add `~/bin` to your
+`PATH` if you want to invoke it without the full path.
 
 The first conversion downloads one pinned 312 MiB BF16 Kokoro model and the selected 510 KiB voice. The two files total 312.5 MiB. Later runs work offline. Each extra voice adds about 510 KiB when first used.
 
@@ -40,21 +43,21 @@ Qwen uses sampled generation with stable text-derived seeds. Its token budget sc
 ## Use
 
 ```sh
-kokoro-book book.epub
-kokoro-book inspect book.epub
-kokoro-book inspect reference.pdf --tree
-kokoro-book inspect reference.azw3 --tree
-kokoro-book inspect notes.md --tree
-kokoro-book notes.txt --output ./notes-audiobook
-kokoro-book book.epub --voice af_sky --speed 1.1 --nav chapters
-kokoro-book book.epub --footnotes end
-kokoro-book voices
-kokoro-book book.epub --provider qwen
-kokoro-book book.epub --provider qwen --voice Ryan
+audiobook-forge book.epub
+audiobook-forge inspect book.epub
+audiobook-forge inspect reference.pdf --tree
+audiobook-forge inspect reference.azw3 --tree
+audiobook-forge inspect notes.md --tree
+audiobook-forge notes.txt --output ./notes-audiobook
+audiobook-forge book.epub --voice af_sky --speed 1.1 --nav chapters
+audiobook-forge book.epub --footnotes end
+audiobook-forge voices
+audiobook-forge book.epub --provider qwen
+audiobook-forge book.epub --provider qwen --voice Ryan
 
 # Compile narration before starting a TTS worker
-kokoro-book preflight book.epub --output prepared/
-kokoro-book book.epub --prepared prepared/
+audiobook-forge preflight book.epub --output prepared/
+audiobook-forge book.epub --prepared prepared/
 ```
 
 For `book.epub`, the default output is:
@@ -67,7 +70,7 @@ book/
 └── cover.jpg              optional
 ```
 
-`--output DIR` changes the output directory. The base file name still comes from the source. The M4B contains mono 64 kbit/s AAC audio, title and author metadata, an embedded cover when present, and stable chapter markers. Kokoro is the default provider with voice `af_heart`. Qwen defaults to `Aiden`. Run `kokoro-book voices` for the 28 Kokoro English presets.
+`--output DIR` changes the output directory. The base file name still comes from the source. The M4B contains mono 64 kbit/s AAC audio, title and author metadata, an embedded cover when present, and stable chapter markers. Kokoro is the default provider with voice `af_heart`. Qwen defaults to `Aiden`. Run `audiobook-forge voices` for the 28 Kokoro English presets.
 
 `preflight` is a zero-audio Kokoro narration compiler. It applies exclusions and deterministic speech repairs, validates every sentence with Misaki and the Kokoro vocabulary, and writes `book.preflight.json`, `book.narration.jsonl`, `book.pronunciations.txt`, and `chapters/*.txt` under the prepared directory. Each narration record keeps an `id`, `status`, `original_text`, TTS-ready `tts_text`, source ranges, repair records, and validated phoneme chunks. A Kokoro build runs the same preflight automatically before it loads MLX. `--prepared DIR` consumes a matching JSONL artifact and does not rerun G2P. Use `--strict-preflight` to reject best-effort pronunciation fallbacks. Qwen uses normalized narration text directly; `--prepared`, `--strict-preflight`, `--pronunciation`, and non-`1.0` speed are not supported for Qwen yet.
 
@@ -90,8 +93,8 @@ MOBI and AZW3 files are limited to 128 MiB, 50,000 Palm database records, 128 Mi
 The lean phonemizer has no eSpeak fallback. It may spell unknown names and rare words letter by letter. Add an IPA override for each book-specific word:
 
 ```sh
-kokoro-book book.epub --pronunciation 'Elena=ɪlˈeɪnə'
-kokoro-book book.epub \
+audiobook-forge book.epub --pronunciation 'Elena=ɪlˈeɪnə'
+audiobook-forge book.epub \
   --pronunciation 'Elena=ɪlˈeɪnə' \
   --pronunciation 'Cormer=kˈɔɹmɚ'
 ```
@@ -133,13 +136,13 @@ All unsafe MLX C calls live in `crates/mlx-memory-control`. The main library and
 
 ## Cache and recovery
 
-The default cache is `~/Library/Caches/kokoro-book`.
+The default cache is `~/Library/Caches/audiobook-forge`.
 
-Set `KOKORO_BOOK_CACHE_DIR` to override it. Kokoro model downloads come from one pinned Hugging Face revision. The model and every English voice have fixed SHA-256 hashes, which the CLI checks before use. The optional Qwen runtime lives under `qwen-runtime` in the same cache root. Its model uses a pinned Hugging Face revision and the standard Hugging Face model cache.
+Set `AUDIOBOOK_FORGE_CACHE_DIR` to override it. Kokoro model downloads come from one pinned Hugging Face revision. The model and every English voice have fixed SHA-256 hashes, which the CLI checks before use. The optional Qwen runtime lives under `qwen-runtime` in the same cache root. Its model uses a pinned Hugging Face revision and the standard Hugging Face model cache.
 
 Successful speech segments remain under the same cache root. A retry after interruption reuses valid segments. Cache keys include normalized text, provider, pinned model, voice, language, speed, sample rate, provider limits, phoneme chunk policy, pronunciation configuration, and the phoneme normalization version. A narration-affecting change therefore creates a new cache entry. Corrupt or incomplete WAV cache entries are rejected and generated again.
 
-Set `KOKORO_BOOK_SEGMENT_CACHE_DIR` to isolate segment WAVs while reusing the installed runtimes and model files. The chapter benchmark uses this override to prevent old cache hits.
+Set `AUDIOBOOK_FORGE_SEGMENT_CACHE_DIR` to isolate segment WAVs while reusing the installed runtimes and model files. The chapter benchmark uses this override to prevent old cache hits.
 
 ## Generated metadata
 

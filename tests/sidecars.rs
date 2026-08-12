@@ -1,16 +1,16 @@
 use std::fs;
 
-use kokoro_book::book::{
+use audiobook_forge::book::{
     Block, BookMetadata, CanonicalBook, PageMarker, Provenance, Section, SectionKind,
     SourceDocument, SourceFormat, SourcePosition, SourceRange, TextBlock,
 };
-use kokoro_book::m4b::ChapterPolicy;
-use kokoro_book::narration::{FootnoteMode, NarrationPolicy, plan_narration};
-use kokoro_book::sidecar::{ManifestOptions, write_audionav, write_manifest};
-use kokoro_book::synthesis::{
+use audiobook_forge::m4b::ChapterPolicy;
+use audiobook_forge::narration::{FootnoteMode, NarrationPolicy, plan_narration};
+use audiobook_forge::sidecar::{ManifestOptions, write_audionav, write_manifest};
+use audiobook_forge::synthesis::{
     MockTtsProvider, SegmentCache, SynthesisSettings, TtsProvider, synthesize_plan,
 };
-use kokoro_book::timeline::CueKind;
+use audiobook_forge::timeline::CueKind;
 use serde_json::Value;
 use tempfile::tempdir;
 

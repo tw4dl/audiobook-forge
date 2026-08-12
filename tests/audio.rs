@@ -1,5 +1,5 @@
+use audiobook_forge::audio::{SAMPLE_RATE, StreamingWav};
 use hound::WavReader;
-use kokoro_book::audio::{SAMPLE_RATE, StreamingWav};
 use tempfile::tempdir;
 
 #[test]

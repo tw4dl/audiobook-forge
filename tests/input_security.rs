@@ -1,7 +1,7 @@
 use std::fmt::Write as _;
 use std::fs::File;
 
-use kokoro_book::input::read_book;
+use audiobook_forge::input::read_book;
 use tempfile::tempdir;
 
 #[path = "support/epub.rs"]

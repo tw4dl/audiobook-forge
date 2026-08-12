@@ -1,4 +1,4 @@
-use kokoro_book::chunk::chunk_text;
+use audiobook_forge::chunk::chunk_text;
 
 #[test]
 fn keeps_chunks_within_the_requested_character_limit() {

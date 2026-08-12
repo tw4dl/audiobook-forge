@@ -1,5 +1,5 @@
-use kokoro_book::book::{Block, Provenance, SectionKind, SourcePosition};
-use kokoro_book::input::read_book;
+use audiobook_forge::book::{Block, Provenance, SectionKind, SourcePosition};
+use audiobook_forge::input::read_book;
 use tempfile::tempdir;
 
 #[path = "support/structured_epub.rs"]
@@ -449,7 +449,7 @@ fn imports_epub2_ncx_page_list_metadata_cover_and_spine_content() {
 }
 
 fn assert_epub_fragment(
-    section: &kokoro_book::book::Section,
+    section: &audiobook_forge::book::Section,
     expected_resource: &str,
     expected_fragment: &str,
 ) {
@@ -488,8 +488,8 @@ fn assert_block_epub_fragment(block: &Block, expected_resource: &str, expected_f
     ));
 }
 
-fn render_structure(root: &kokoro_book::book::Section) -> String {
-    fn render(section: &kokoro_book::book::Section, indent: usize, output: &mut String) {
+fn render_structure(root: &audiobook_forge::book::Section) -> String {
+    fn render(section: &audiobook_forge::book::Section, indent: usize, output: &mut String) {
         use std::fmt::Write as _;
 
         let source = section.source_range.as_ref().map_or_else(
@@ -523,9 +523,9 @@ fn render_structure(root: &kokoro_book::book::Section) -> String {
 }
 
 fn find_section<'a>(
-    section: &'a kokoro_book::book::Section,
+    section: &'a audiobook_forge::book::Section,
     id: &str,
-) -> Option<&'a kokoro_book::book::Section> {
+) -> Option<&'a audiobook_forge::book::Section> {
     if section.id == id {
         return Some(section);
     }
@@ -536,9 +536,9 @@ fn find_section<'a>(
 }
 
 fn find_section_by_title<'a>(
-    section: &'a kokoro_book::book::Section,
+    section: &'a audiobook_forge::book::Section,
     title: &str,
-) -> Option<&'a kokoro_book::book::Section> {
+) -> Option<&'a audiobook_forge::book::Section> {
     if section.title.as_deref() == Some(title) {
         return Some(section);
     }

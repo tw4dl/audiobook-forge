@@ -1,6 +1,6 @@
 use assert_cmd::Command;
-use kokoro_book::book::{Block, Section};
-use kokoro_book::input::read_book;
+use audiobook_forge::book::{Block, Section};
+use audiobook_forge::input::read_book;
 use predicates::prelude::*;
 use tempfile::tempdir;
 
@@ -80,12 +80,12 @@ fn inspect_azw3_needs_no_model_and_prints_the_structure() {
     let temp = tempdir().expect("temp dir");
     let cache = temp.path().join("cache");
 
-    Command::cargo_bin("kokoro-book")
+    Command::cargo_bin("audiobook-forge")
         .expect("binary")
         .arg("inspect")
         .arg(AZW3_FIXTURE)
         .arg("--tree")
-        .env("KOKORO_BOOK_CACHE_DIR", &cache)
+        .env("AUDIOBOOK_FORGE_CACHE_DIR", &cache)
         .assert()
         .success()
         .stdout(predicate::str::contains("Format: AZW3/KF8 8"))
@@ -229,7 +229,7 @@ fn collect_titles<'a>(section: &'a Section, titles: &mut Vec<&'a str>) {
     }
 }
 
-fn first_paragraph(root: &Section) -> &kokoro_book::book::TextBlock {
+fn first_paragraph(root: &Section) -> &audiobook_forge::book::TextBlock {
     root.children
         .iter()
         .flat_map(|section| section.blocks.iter())

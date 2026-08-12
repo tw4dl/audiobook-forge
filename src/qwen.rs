@@ -105,7 +105,7 @@ impl TtsProvider for QwenTtsProvider {
 }
 
 pub(crate) fn default_python(cache_root: &Path) -> PathBuf {
-    std::env::var_os("KOKORO_BOOK_QWEN_PYTHON")
+    std::env::var_os("AUDIOBOOK_FORGE_QWEN_PYTHON")
         .map_or_else(|| cache_root.join("qwen-runtime/bin/python"), PathBuf::from)
 }
 
@@ -127,7 +127,7 @@ fn canonical_voice(voice: &str) -> Result<String> {
 fn configuration_hash(voice: &str) -> String {
     let mut digest = Sha256::new();
     for value in [
-        "kokoro-book-qwen-v2",
+        "audiobook-forge-qwen-v2",
         QWEN_RUNTIME_COMMIT,
         QWEN_MODEL,
         QWEN_MODEL_REVISION,
@@ -158,7 +158,7 @@ fn generation_max_tokens(text: &str) -> usize {
 
 fn generation_seed(text: &str, attempt: u32) -> u32 {
     let mut digest = Sha256::new();
-    digest.update(b"kokoro-book-qwen-seed-v1\0");
+    digest.update(b"audiobook-forge-qwen-seed-v1\0");
     digest.update(text.as_bytes());
     digest.update([0]);
     digest.update(attempt.to_le_bytes());
@@ -224,7 +224,7 @@ impl QwenProcessWorker {
     fn launch(launch: QwenWorkerLaunch) -> Result<Self> {
         if !launch.python.is_file() {
             bail!(
-                "Qwen Python runtime not found at {}; run scripts/setup-qwen-runtime.sh or set KOKORO_BOOK_QWEN_PYTHON",
+                "Qwen Python runtime not found at {}; run scripts/setup-qwen-runtime.sh or set AUDIOBOOK_FORGE_QWEN_PYTHON",
                 launch.python.display()
             );
         }
@@ -246,7 +246,7 @@ impl QwenProcessWorker {
             .spawn()
             .with_context(|| {
                 format!(
-                    "failed to launch Qwen Python runtime {}; set KOKORO_BOOK_QWEN_PYTHON",
+                    "failed to launch Qwen Python runtime {}; set AUDIOBOOK_FORGE_QWEN_PYTHON",
                     launch.python.display()
                 )
             })?;

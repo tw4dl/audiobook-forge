@@ -144,7 +144,7 @@ fn export_cover(cover: Option<&BookAsset>, output_dir: &Path) -> Result<Option<P
     }
     let extension = cover_extension(&cover.media_type)?;
     let mut input = TempBuilder::new()
-        .prefix(".kokoro-book-cover-input-")
+        .prefix(".audiobook-forge-cover-input-")
         .suffix(extension)
         .tempfile_in(output_dir)
         .context("failed to stage source cover")?;
@@ -155,7 +155,7 @@ fn export_cover(cover: Option<&BookAsset>, output_dir: &Path) -> Result<Option<P
         .flush()
         .context("failed to flush staged source cover")?;
     let temporary = TempBuilder::new()
-        .prefix(".kokoro-book-cover-")
+        .prefix(".audiobook-forge-cover-")
         .suffix(".jpg")
         .tempfile_in(output_dir)
         .context("failed to create temporary JPEG cover")?

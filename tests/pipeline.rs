@@ -1,4 +1,4 @@
-use kokoro_book::pipeline::pack_phoneme_sentences;
+use audiobook_forge::pipeline::pack_phoneme_sentences;
 
 #[test]
 fn packs_complete_phoneme_sentences_within_the_limit() {

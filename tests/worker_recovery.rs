@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use kokoro_book::worker::{ChunkAudio, ChunkWorker, synthesize_with_split_retry};
+use audiobook_forge::worker::{ChunkAudio, ChunkWorker, synthesize_with_split_retry};
 
 #[derive(Default)]
 struct FailsFirstWorker {

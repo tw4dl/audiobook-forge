@@ -1,8 +1,8 @@
 #[path = "support/pdf_fixture.rs"]
 mod pdf_fixture;
 
-use kokoro_book::book::{Block, Provenance, SectionKind, SourceFormat, SourcePosition};
-use kokoro_book::input::read_book;
+use audiobook_forge::book::{Block, Provenance, SectionKind, SourceFormat, SourcePosition};
+use audiobook_forge::input::read_book;
 use pdf_fixture::{
     write_blank_pdf, write_encrypted_pdf, write_pdf_with_bookmarks, write_pdf_with_outline_cycle,
     write_pdf_with_oversized_page_stream, write_pdf_with_wrong_page_count,

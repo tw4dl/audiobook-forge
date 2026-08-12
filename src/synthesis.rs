@@ -409,7 +409,7 @@ fn validate_audio(audio: &TtsAudio) -> Result<()> {
 
 fn cache_key(identity: &TtsProviderIdentity, request: &TtsRequest) -> String {
     let mut digest = Sha256::new();
-    digest.update(b"kokoro-book-segment-cache-v1\0");
+    digest.update(b"audiobook-forge-segment-cache-v1\0");
     for value in [
         identity.provider.as_str(),
         identity.model.as_str(),

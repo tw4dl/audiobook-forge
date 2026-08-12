@@ -68,11 +68,11 @@ impl ModelAssets {
 ///
 /// Returns an error when the operating system has no user cache directory.
 pub fn default_cache_dir() -> Result<PathBuf> {
-    if let Some(path) = std::env::var_os("KOKORO_BOOK_CACHE_DIR") {
+    if let Some(path) = std::env::var_os("AUDIOBOOK_FORGE_CACHE_DIR") {
         return Ok(PathBuf::from(path));
     }
     let base = BaseDirs::new().ok_or_else(|| anyhow!("cannot find the user cache directory"))?;
-    Ok(base.cache_dir().join("kokoro-book"))
+    Ok(base.cache_dir().join("audiobook-forge"))
 }
 
 /// Return verified model assets, downloading missing files from a pinned revision.

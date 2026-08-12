@@ -1,5 +1,5 @@
-use kokoro_book::model::{MODEL_BUNDLE_NAME, MODEL_REVISION, MODEL_SHA256, ModelAssets};
-use kokoro_book::voice::Voice;
+use audiobook_forge::model::{MODEL_BUNDLE_NAME, MODEL_REVISION, MODEL_SHA256, ModelAssets};
+use audiobook_forge::voice::Voice;
 use tempfile::tempdir;
 
 #[test]

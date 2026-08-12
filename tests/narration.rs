@@ -1,8 +1,10 @@
-use kokoro_book::book::{
+use audiobook_forge::book::{
     Block, BookMetadata, CanonicalBook, ListBlock, Provenance, Section, SectionKind,
     SourceDocument, SourceFormat, TextBlock,
 };
-use kokoro_book::narration::{FootnoteMode, NarrationPolicy, normalize_for_speech, plan_narration};
+use audiobook_forge::narration::{
+    FootnoteMode, NarrationPolicy, normalize_for_speech, plan_narration,
+};
 
 #[test]
 fn normalizes_document_text_for_speech_without_changing_source_content() {
@@ -28,7 +30,7 @@ fn collapses_spaced_ellipsis_without_creating_punctuation_only_units() {
 
     assert_eq!(spoken, "\"But ... But ...\"");
     assert!(
-        kokoro_book::pipeline::extract_sentences(&spoken)
+        audiobook_forge::pipeline::extract_sentences(&spoken)
             .iter()
             .all(|sentence| sentence
                 .trim_matches(['.', '"'])

@@ -1,16 +1,16 @@
 use std::fs;
 
-use kokoro_book::book::{
+use audiobook_forge::book::{
     Block, BookMetadata, CanonicalBook, Provenance, Section, SectionKind, SourceDocument,
     SourceFormat, TextBlock,
 };
-use kokoro_book::narration::{NarrationPolicy, plan_narration};
-use kokoro_book::preflight::{PreparedNarration, PreparedNarrationUnit};
-use kokoro_book::synthesis::{
+use audiobook_forge::narration::{NarrationPolicy, plan_narration};
+use audiobook_forge::preflight::{PreparedNarration, PreparedNarrationUnit};
+use audiobook_forge::synthesis::{
     MockTtsProvider, PhonemeNormalizationReport, SegmentCache, SynthesisSettings, TtsInputMode,
     synthesize_plan,
 };
-use kokoro_book::timeline::CueKind;
+use audiobook_forge::timeline::CueKind;
 use tempfile::tempdir;
 
 #[test]

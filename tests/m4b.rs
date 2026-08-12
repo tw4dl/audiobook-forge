@@ -1,10 +1,12 @@
-use kokoro_book::book::{
+use audiobook_forge::book::{
     Block, BookAsset, BookMetadata, CanonicalBook, Provenance, Section, SectionKind,
     SourceDocument, SourceFormat, TextBlock,
 };
-use kokoro_book::m4b::{ChapterPolicy, assemble_m4b, select_chapters, validate_m4b};
-use kokoro_book::narration::{NarrationPolicy, plan_narration};
-use kokoro_book::synthesis::{MockTtsProvider, SegmentCache, SynthesisSettings, synthesize_plan};
+use audiobook_forge::m4b::{ChapterPolicy, assemble_m4b, select_chapters, validate_m4b};
+use audiobook_forge::narration::{NarrationPolicy, plan_narration};
+use audiobook_forge::synthesis::{
+    MockTtsProvider, SegmentCache, SynthesisSettings, synthesize_plan,
+};
 use tempfile::tempdir;
 
 #[test]

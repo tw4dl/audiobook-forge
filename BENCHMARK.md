@@ -19,7 +19,7 @@ Date: 2026-08-10
 
 RTF is worker synthesis wall time divided by generated speech duration. It includes MLX evaluation and the copy from the MLX array. It excludes model loading, G2P, inserted sentence silence, cache-WAV I/O, and M4B assembly. Model loading is reported separately.
 
-MLX peak and cached bytes come from the checked MLX C API after every chunk. Worker footprint comes from `/usr/bin/time -l`, wrapped around only the isolated worker through `KOKORO_BOOK_WORKER_TIME_LOG`.
+MLX peak and cached bytes come from the checked MLX C API after every chunk. Worker footprint comes from `/usr/bin/time -l`, wrapped around only the isolated worker through `AUDIOBOOK_FORGE_WORKER_TIME_LOG`.
 
 ## Phoneme-limit results
 
@@ -64,7 +64,7 @@ The EPUB integration suite packages the same passage into a generated two-docume
 Lean Misaki spells the unknown name `Elena` letter by letter. The original pronunciation measurement used the earlier PCM output path. The equivalent current M4B build is:
 
 ```sh
-target/release/kokoro-book tests/fixtures/on-the-eve-elena.txt \
+target/release/audiobook-forge tests/fixtures/on-the-eve-elena.txt \
   --pronunciation 'Elena=ɪlˈeɪnə' \
   --output target/pronunciation-check \
   --quiet

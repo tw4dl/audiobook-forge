@@ -35,7 +35,7 @@ use crate::worker::{WorkerLaunch, WorkerLimits, run_mlx_worker};
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "kokoro-book",
+    name = "audiobook-forge",
     version,
     about = "Turn an English ebook or document into a navigable M4B audiobook",
     long_about = None
@@ -424,7 +424,7 @@ fn run_conversion(cli: &Cli) -> Result<()> {
     let input = cli
         .input
         .as_deref()
-        .context("missing INPUT; run `kokoro-book --help`")?;
+        .context("missing INPUT; run `audiobook-forge --help`")?;
     let book = read_book(input)?;
     for warning in &book.warnings {
         eprintln!("WARN: {}", terminal_text(warning));
@@ -572,7 +572,7 @@ fn resolve_prepared_path(path: &Path, input: &Path) -> Result<PathBuf> {
 
 fn segment_cache(cache_root: &Path) -> SegmentCache {
     SegmentCache::new(
-        std::env::var_os("KOKORO_BOOK_SEGMENT_CACHE_DIR")
+        std::env::var_os("AUDIOBOOK_FORGE_SEGMENT_CACHE_DIR")
             .map_or_else(|| cache_root.join("segments"), PathBuf::from),
     )
 }

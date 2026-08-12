@@ -1,10 +1,10 @@
 use std::fs;
 
-use kokoro_book::build::{AudiobookBuildOptions, build_audiobook};
-use kokoro_book::input::read_book;
-use kokoro_book::m4b::{ChapterPolicy, validate_m4b};
-use kokoro_book::narration::{FootnoteMode, NarrationPolicy};
-use kokoro_book::synthesis::{MockTtsProvider, SegmentCache, SynthesisSettings};
+use audiobook_forge::build::{AudiobookBuildOptions, build_audiobook};
+use audiobook_forge::input::read_book;
+use audiobook_forge::m4b::{ChapterPolicy, validate_m4b};
+use audiobook_forge::narration::{FootnoteMode, NarrationPolicy};
+use audiobook_forge::synthesis::{MockTtsProvider, SegmentCache, SynthesisSettings};
 use serde_json::Value;
 use tempfile::tempdir;
 

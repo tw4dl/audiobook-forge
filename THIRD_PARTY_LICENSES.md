@@ -1,6 +1,6 @@
 # Third-party licenses
 
-`kokoro-book` original code is Apache-2.0. This repository does not commit downloaded model weights or third-party native binaries.
+`audiobook-forge` original code is Apache-2.0. This repository does not commit downloaded model weights or third-party native binaries.
 
 ## License gate
 
@@ -71,7 +71,7 @@ Apple operating-system frameworks are provided by macOS and are not redistribute
 - `am_adam`
 - `bf_emma`
 
-Those voice embeddings are Kokoro model data, whose upstream model license is Apache-2.0. `kokoro-book` does not call the built-in voice loader; it downloads and verifies the selected full 510-frame voice from the pinned model revision. The embedded data remains part of the linked `voice-tts` package, so both its MIT package license and the Kokoro Apache-2.0 model license are documented here.
+Those voice embeddings are Kokoro model data, whose upstream model license is Apache-2.0. `audiobook-forge` does not call the built-in voice loader; it downloads and verifies the selected full 510-frame voice from the pinned model revision. The embedded data remains part of the linked `voice-tts` package, so both its MIT package license and the Kokoro Apache-2.0 model license are documented here.
 
 ## Downloaded Kokoro assets
 

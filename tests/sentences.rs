@@ -1,4 +1,4 @@
-use kokoro_book::pipeline::extract_sentences;
+use audiobook_forge::pipeline::extract_sentences;
 
 #[test]
 fn extracts_sentences_and_keeps_closing_quotes() {

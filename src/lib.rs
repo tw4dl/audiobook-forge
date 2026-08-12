@@ -1,4 +1,4 @@
-//! Core library for the `kokoro-book` CLI.
+//! Core library for the `audiobook-forge` CLI.
 
 #![forbid(unsafe_code)]
 
